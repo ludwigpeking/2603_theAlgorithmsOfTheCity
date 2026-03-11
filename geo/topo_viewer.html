@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NYC Topography — SAR HH Backscatter</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  header {
+    padding: 10px 20px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+
+  header h1 { font-size: 1rem; font-weight: 600; color: #e6edf3; }
+  header p  { font-size: 0.75rem; color: #8b949e; }
+
+  .legend {
+    display: flex;
+    gap: 14px;
+    margin-left: auto;
+    align-items: center;
+    font-size: 0.72rem;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .swatch {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+
+  #map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+  }
+  #map-container.grabbing { cursor: grabbing; }
+
+  canvas { position: absolute; top: 0; left: 0; image-rendering: pixelated; }
+
+  #tooltip {
+    position: absolute;
+    background: rgba(13,17,23,0.92);
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    pointer-events: none;
+    display: none;
+    line-height: 1.6;
+    backdrop-filter: blur(4px);
+  }
+
+  #controls {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ctrl-btn {
+    width: 32px; height: 32px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .ctrl-btn:hover { background: #21262d; }
+
+  #scalebar {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    font-size: 0.65rem;
+    color: #8b949e;
+  }
+  #scalebar-line {
+    height: 3px;
+    background: #8b949e;
+    border-radius: 2px;
+    margin-bottom: 3px;
+  }
+
+  .info-pill {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(13,17,23,0.85);
+    border: 1px solid #30363d;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.68rem;
+    color: #8b949e;
+    backdrop-filter: blur(4px);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>NYC Region — SAR HH Backscatter</h1>
+    <p>output_hh1.tif · EPSG:4326 · 1701 × 1085 px · bounds: 40.53–40.83 °N, 74.19–73.71 °W</p>
+  </div>
+  <div class="legend">
+    <div class="legend-item">
+      <div class="swatch" style="background: linear-gradient(to right,#0a46a0,#1e78d2,#50aae6)"></div>
+      Water
+    </div>
+    <div class="legend-item">
+      <div class="swatch" style="background: linear-gradient(to right,#228b22,#55aa55,#c8b978,#a06e3c,#c8c3be)"></div>
+      Land (low → high backscatter)
+    </div>
+    <div class="legend-item" style="color:#8b949e">
+      Scroll to zoom · drag to pan · hover for value
+    </div>
+  </div>
+</header>
+
+<div id="map-container">
+  <canvas id="canvas"></canvas>
+  <div id="tooltip"></div>
+  <div class="info-pill" id="zoom-label">zoom 1×</div>
+  <div id="controls">
+    <button class="ctrl-btn" id="btn-zoom-in"  title="Zoom in">+</button>
+    <button class="ctrl-btn" id="btn-zoom-out" title="Zoom out">−</button>
+    <button class="ctrl-btn" id="btn-reset"    title="Reset view">⊙</button>
+  </div>
+  <div id="scalebar">
+    <div id="scalebar-line"></div>
+    <span id="scalebar-label"></span>
+  </div>
+</div>
+
+<script>
+// ── config ────────────────────────────────────────────────────────────────────
+const IMG_SRC      = "topo.png";
+const IMG_W        = 1701;
+const IMG_H        = 1085;
+const BOUNDS       = { west: -74.18569, east: -73.71319, south: 40.52708, north: 40.82847 };
+const WATER_THRESH = 0.5;  // visual only — actual classification done in Python
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let zoom   = 1;
+let panX   = 0;
+let panY   = 0;
+let isDragging = false;
+let lastMX = 0, lastMY = 0;
+
+const container = document.getElementById("map-container");
+const canvas    = document.getElementById("canvas");
+const ctx       = canvas.getContext("2d");
+const tooltip   = document.getElementById("tooltip");
+const zoomLabel = document.getElementById("zoom-label");
+const scalebarLine  = document.getElementById("scalebar-line");
+const scalebarLabel = document.getElementById("scalebar-label");
+
+const img = new Image();
+img.src = IMG_SRC;
+img.onload = () => { fitToWindow(); draw(); };
+img.onerror = () => {
+  ctx.fillStyle = "#ff6b6b";
+  ctx.font = "16px sans-serif";
+  ctx.fillText("Could not load topo.png — run render_topo.py first.", 20, 40);
+};
+
+function fitToWindow() {
+  const cw = container.clientWidth;
+  const ch = container.clientHeight;
+  zoom = Math.min(cw / IMG_W, ch / IMG_H);
+  panX = (cw - IMG_W * zoom) / 2;
+  panY = (ch - IMG_H * zoom) / 2;
+}
+
+function draw() {
+  const cw = container.clientWidth;
+  const ch = container.clientHeight;
+  canvas.width  = cw;
+  canvas.height = ch;
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.imageSmoothingEnabled = zoom < 2;
+  ctx.drawImage(img, panX, panY, IMG_W * zoom, IMG_H * zoom);
+  updateScalebar();
+  zoomLabel.textContent = `zoom ${zoom.toFixed(2)}×`;
+}
+
+// ── scale bar ─────────────────────────────────────────────────────────────────
+function updateScalebar() {
+  const lonDeg  = BOUNDS.east - BOUNDS.west;
+  const latMid  = (BOUNDS.north + BOUNDS.south) / 2;
+  const pxPerDeg = IMG_W * zoom / lonDeg;
+  const mPerDeg  = 111320 * Math.cos(latMid * Math.PI / 180);
+  const targets  = [50,100,200,500,1000,2000,5000,10000];
+  let chosen = targets[0];
+  for (const t of targets) {
+    if (t / mPerDeg * pxPerDeg < 160) chosen = t;
+  }
+  const barPx = chosen / mPerDeg * pxPerDeg;
+  scalebarLine.style.width = barPx + "px";
+  scalebarLabel.textContent = chosen >= 1000 ? `${chosen/1000} km` : `${chosen} m`;
+}
+
+// ── pixel → lat/lon ───────────────────────────────────────────────────────────
+function screenToGeo(sx, sy) {
+  const px = (sx - panX) / zoom;
+  const py = (sy - panY) / zoom;
+  const lon = BOUNDS.west + (px / IMG_W) * (BOUNDS.east  - BOUNDS.west);
+  const lat = BOUNDS.north - (py / IMG_H) * (BOUNDS.north - BOUNDS.south);
+  return { lat, lon, px: Math.round(px), py: Math.round(py) };
+}
+
+// ── zoom ──────────────────────────────────────────────────────────────────────
+function zoomAt(cx, cy, factor) {
+  const newZoom = Math.min(Math.max(zoom * factor, 0.2), 20);
+  panX = cx - (cx - panX) * (newZoom / zoom);
+  panY = cy - (cy - panY) * (newZoom / zoom);
+  zoom = newZoom;
+  draw();
+}
+
+container.addEventListener("wheel", e => {
+  e.preventDefault();
+  const rect = container.getBoundingClientRect();
+  zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.15 : 1/1.15);
+}, { passive: false });
+
+document.getElementById("btn-zoom-in") .addEventListener("click", () => zoomAt(container.clientWidth/2, container.clientHeight/2, 1.5));
+document.getElementById("btn-zoom-out").addEventListener("click", () => zoomAt(container.clientWidth/2, container.clientHeight/2, 1/1.5));
+document.getElementById("btn-reset")   .addEventListener("click", () => { fitToWindow(); draw(); });
+
+// ── pan ───────────────────────────────────────────────────────────────────────
+container.addEventListener("mousedown", e => {
+  isDragging = true; lastMX = e.clientX; lastMY = e.clientY;
+  container.classList.add("grabbing");
+});
+window.addEventListener("mousemove", e => {
+  if (isDragging) {
+    panX += e.clientX - lastMX;
+    panY += e.clientY - lastMY;
+    lastMX = e.clientX; lastMY = e.clientY;
+    draw();
+  }
+  // tooltip
+  const rect = container.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const geo = screenToGeo(sx, sy);
+  if (geo.px >= 0 && geo.px < IMG_W && geo.py >= 0 && geo.py < IMG_H) {
+    tooltip.style.display = "block";
+    tooltip.style.left = (sx + 14) + "px";
+    tooltip.style.top  = (sy + 14) + "px";
+    tooltip.innerHTML  =
+      `<b>${geo.lat.toFixed(5)}°N, ${Math.abs(geo.lon).toFixed(5)}°W</b><br>
+       pixel (${geo.px}, ${geo.py})`;
+  } else {
+    tooltip.style.display = "none";
+  }
+});
+window.addEventListener("mouseup", () => {
+  isDragging = false; container.classList.remove("grabbing");
+});
+
+// ── resize ────────────────────────────────────────────────────────────────────
+window.addEventListener("resize", draw);
+
+// touch pan/zoom
+let lastTouchDist = null;
+container.addEventListener("touchstart", e => {
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastTouchDist = Math.hypot(dx, dy);
+  } else {
+    isDragging = true;
+    lastMX = e.touches[0].clientX;
+    lastMY = e.touches[0].clientY;
+  }
+}, { passive: true });
+container.addEventListener("touchmove", e => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const rect = container.getBoundingClientRect();
+    if (lastTouchDist) zoomAt(cx - rect.left, cy - rect.top, dist / lastTouchDist);
+    lastTouchDist = dist;
+  } else if (isDragging) {
+    panX += e.touches[0].clientX - lastMX;
+    panY += e.touches[0].clientY - lastMY;
+    lastMX = e.touches[0].clientX;
+    lastMY = e.touches[0].clientY;
+    draw();
+  }
+}, { passive: false });
+container.addEventListener("touchend", () => { isDragging = false; lastTouchDist = null; });
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/c/Users/qli/AppData/Local/Programs/Python/Python312/python.exe render_topo.py)",
+      "Bash(/c/Users/qli/AppData/Local/Programs/Python/Python312/python.exe -c \":*)",
+      "Bash(/c/Users/qli/AppData/Local/Programs/Python/Python312/python.exe render_lazio.py)"
+    ]
+  }
+}

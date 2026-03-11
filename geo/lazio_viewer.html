@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Greater Rome DTM — Digital Terrain Model</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  header {
+    padding: 10px 20px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 1rem; font-weight: 600; color: #e6edf3; }
+  header p  { font-size: 0.73rem; color: #8b949e; }
+
+  /* elevation colour scale bar */
+  .scalebar-elev {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    font-size: 0.68rem;
+    color: #8b949e;
+  }
+  .grad-bar {
+    width: 180px; height: 12px;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: linear-gradient(to right,
+      #081430,   /* deep sea   */
+      #1478c8,   /* sea        */
+      #e6dc9f,   /* coast      */
+      #b4d77a,   /* lowland    */
+      #6eb44b,   /* plains     */
+      #a09149,   /* foothills  */
+      #876432,   /* hills      */
+      #694b2d,   /* mountains  */
+      #9b8c82,   /* high alpine*/
+      #f0eeef    /* snow       */
+    );
+  }
+
+  #map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+    background: #0d1117;
+  }
+  #map-container.grabbing { cursor: grabbing; }
+
+  canvas { position: absolute; top: 0; left: 0; image-rendering: pixelated; }
+
+  #tooltip {
+    position: absolute;
+    background: rgba(13,17,23,0.93);
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 7px 11px;
+    font-size: 0.72rem;
+    pointer-events: none;
+    display: none;
+    line-height: 1.7;
+    backdrop-filter: blur(4px);
+  }
+  #tooltip strong { color: #e6edf3; }
+
+  #controls {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .ctrl-btn {
+    width: 32px; height: 32px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .ctrl-btn:hover { background: #21262d; }
+
+  #scalebar {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    font-size: 0.65rem;
+    color: #8b949e;
+  }
+  #scalebar-line { height: 3px; background: #8b949e; border-radius: 2px; margin-bottom: 3px; }
+
+  .pill {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(13,17,23,0.85);
+    border: 1px solid #30363d;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.68rem;
+    color: #8b949e;
+    backdrop-filter: blur(4px);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Greater Rome — Digital Terrain Model</h1>
+    <p>greaterRome.tif · EPSG:4326 · 4173 × 2053 px · −9 m → 1805 m · Tiber valley, Apennine foothills · lakes: Bracciano 162 m, Albano 293 m</p>
+  </div>
+  <div class="scalebar-elev">
+    <span>−11 m</span>
+    <div class="grad-bar"></div>
+    <span>1805 m</span>
+    <span style="margin-left:16px;display:flex;align-items:center;gap:6px;">
+      <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#1e6ec8;border:1px solid rgba(255,255,255,0.15)"></span>Sea
+    </span>
+    <span style="display:flex;align-items:center;gap:6px;">
+      <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#3796dc;border:1px solid rgba(255,255,255,0.15)"></span>Lakes / Rivers
+    </span>
+  </div>
+</header>
+
+<div id="map-container">
+  <canvas id="canvas"></canvas>
+  <div id="tooltip"></div>
+  <div class="pill" id="zoom-label">zoom 1×</div>
+  <div id="controls">
+    <button class="ctrl-btn" id="btn-zoom-in"  title="Zoom in">+</button>
+    <button class="ctrl-btn" id="btn-zoom-out" title="Zoom out">−</button>
+    <button class="ctrl-btn" id="btn-reset"    title="Reset view">⊙</button>
+  </div>
+  <div id="scalebar">
+    <div id="scalebar-line"></div>
+    <span id="scalebar-label"></span>
+  </div>
+</div>
+
+<script>
+const IMG_SRC = "greaterRome.png";
+const IMG_W   = 2086;
+const IMG_H   = 1379;
+const BOUNDS  = { west: 12.031250, east: 13.190417, south: 41.618472, north: 42.188750 };
+
+let zoom = 1, panX = 0, panY = 0;
+let isDragging = false, lastMX = 0, lastMY = 0;
+
+const container  = document.getElementById("map-container");
+const canvas     = document.getElementById("canvas");
+const ctx        = canvas.getContext("2d");
+const tooltip    = document.getElementById("tooltip");
+const zoomLabel  = document.getElementById("zoom-label");
+const sbarLine   = document.getElementById("scalebar-line");
+const sbarLabel  = document.getElementById("scalebar-label");
+
+const img = new Image();
+img.src = IMG_SRC;
+img.onload  = () => { fitToWindow(); draw(); };
+img.onerror = () => {
+  canvas.width = container.clientWidth;
+  canvas.height = container.clientHeight;
+  ctx.fillStyle = "#ff6b6b";
+  ctx.font = "16px sans-serif";
+  ctx.fillText("Could not load lazio.png — run render_lazio.py first.", 20, 40);
+};
+
+function fitToWindow() {
+  const cw = container.clientWidth, ch = container.clientHeight;
+  zoom = Math.min(cw / IMG_W, ch / IMG_H);
+  panX = (cw - IMG_W * zoom) / 2;
+  panY = (ch - IMG_H * zoom) / 2;
+}
+
+function draw() {
+  const cw = container.clientWidth, ch = container.clientHeight;
+  canvas.width = cw; canvas.height = ch;
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.imageSmoothingEnabled = zoom < 3;
+  ctx.drawImage(img, panX, panY, IMG_W * zoom, IMG_H * zoom);
+  updateScalebar();
+  zoomLabel.textContent = `zoom ${zoom.toFixed(2)}×`;
+}
+
+function updateScalebar() {
+  const latMid   = (BOUNDS.north + BOUNDS.south) / 2;
+  const lonDeg   = BOUNDS.east - BOUNDS.west;
+  const pxPerDeg = IMG_W * zoom / lonDeg;
+  const mPerDeg  = 111320 * Math.cos(latMid * Math.PI / 180);
+  const targets  = [50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
+  let chosen = targets[0];
+  for (const t of targets) if (t / mPerDeg * pxPerDeg < 200) chosen = t;
+  const barPx = chosen / mPerDeg * pxPerDeg;
+  sbarLine.style.width = barPx + "px";
+  sbarLabel.textContent = chosen >= 1000 ? `${chosen / 1000} km` : `${chosen} m`;
+}
+
+function screenToGeo(sx, sy) {
+  const px = (sx - panX) / zoom;
+  const py = (sy - panY) / zoom;
+  const lon = BOUNDS.west  + (px / IMG_W) * (BOUNDS.east  - BOUNDS.west);
+  const lat = BOUNDS.north - (py / IMG_H) * (BOUNDS.north - BOUNDS.south);
+  return { lat, lon, px: Math.round(px), py: Math.round(py) };
+}
+
+function zoomAt(cx, cy, factor) {
+  const nz = Math.min(Math.max(zoom * factor, 0.1), 30);
+  panX = cx - (cx - panX) * (nz / zoom);
+  panY = cy - (cy - panY) * (nz / zoom);
+  zoom = nz;
+  draw();
+}
+
+container.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = container.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+}, { passive: false });
+
+document.getElementById("btn-zoom-in") .addEventListener("click", () => zoomAt(container.clientWidth/2, container.clientHeight/2, 1.5));
+document.getElementById("btn-zoom-out").addEventListener("click", () => zoomAt(container.clientWidth/2, container.clientHeight/2, 1/1.5));
+document.getElementById("btn-reset")   .addEventListener("click", () => { fitToWindow(); draw(); });
+
+container.addEventListener("mousedown", e => {
+  isDragging = true; lastMX = e.clientX; lastMY = e.clientY;
+  container.classList.add("grabbing");
+});
+window.addEventListener("mousemove", e => {
+  if (isDragging) {
+    panX += e.clientX - lastMX; panY += e.clientY - lastMY;
+    lastMX = e.clientX; lastMY = e.clientY;
+    draw();
+  }
+  const r = container.getBoundingClientRect();
+  const g = screenToGeo(e.clientX - r.left, e.clientY - r.top);
+  if (g.px >= 0 && g.px < IMG_W && g.py >= 0 && g.py < IMG_H) {
+    tooltip.style.display = "block";
+    tooltip.style.left = (e.clientX - r.left + 14) + "px";
+    tooltip.style.top  = (e.clientY - r.top  + 14) + "px";
+    tooltip.innerHTML  = `<strong>${g.lat.toFixed(5)}°N, ${g.lon.toFixed(5)}°E</strong><br>pixel (${g.px}, ${g.py})`;
+  } else {
+    tooltip.style.display = "none";
+  }
+});
+window.addEventListener("mouseup", () => { isDragging = false; container.classList.remove("grabbing"); });
+window.addEventListener("resize", draw);
+
+// touch
+let lastTouchDist = null;
+container.addEventListener("touchstart", e => {
+  if (e.touches.length === 2) {
+    lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  } else { isDragging = true; lastMX = e.touches[0].clientX; lastMY = e.touches[0].clientY; }
+}, { passive: true });
+container.addEventListener("touchmove", e => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const r  = container.getBoundingClientRect();
+    if (lastTouchDist) zoomAt(cx - r.left, cy - r.top, dist / lastTouchDist);
+    lastTouchDist = dist;
+  } else if (isDragging) {
+    panX += e.touches[0].clientX - lastMX; panY += e.touches[0].clientY - lastMY;
+    lastMX = e.touches[0].clientX; lastMY = e.touches[0].clientY; draw();
+  }
+}, { passive: false });
+container.addEventListener("touchend", () => { isDragging = false; lastTouchDist = null; });
+</script>
+</body>
+</html>
