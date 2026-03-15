@@ -136,6 +136,45 @@ canvas { display: block; }
     D8 lines follow actual flow direction.<br>
     0 = all cells, 1 = trunk only (log scale).
   </p>
+
+  <div class="section">Tribe Simulation</div>
+  <div class="ctrl">
+    <label>Control</label>
+    <button id="sim-btn" style="flex:1;padding:3px 8px;cursor:pointer;background:#1a5faa;color:#fff;border:none;border-radius:4px;font-size:0.75rem;">&#9654; Run</button>
+    <button id="sim-reset" style="padding:3px 8px;cursor:pointer;background:#e0dbd4;color:#2a2520;border:1px solid #c0bbb4;border-radius:4px;font-size:0.75rem;">Reset</button>
+  </div>
+  <div class="ctrl">
+    <label>Speed</label>
+    <input type="range" id="sim-speed" min="1" max="20" value="1" step="1">
+    <span class="val" id="sim-speed-val">1×</span>
+  </div>
+  <p class="note" id="sim-stats">50 tribes placed · paused</p>
+  <p class="note" style="color:#888">&#9679; blue = stable &nbsp; &#9679; red = shortage</p>
+  <div class="ctrl">
+    <label>Harvest radius</label>
+    <input type="range" id="sim-radius" min="5" max="80" value="20" step="1">
+    <span class="val" id="sim-radius-val">20 km</span>
+  </div>
+  <div class="ctrl">
+    <label>Replenish rate</label>
+    <input type="range" id="sim-replenish" min="2" max="30" value="6" step="1">
+    <span class="val" id="sim-replenish-val">1/6 /fr</span>
+  </div>
+  <div class="ctrl">
+    <label>Growth rate</label>
+    <input type="range" id="sim-growth" min="0.1" max="5" value="5" step="0.1">
+    <span class="val" id="sim-growth-val">5 %/fr</span>
+  </div>
+  <div class="ctrl">
+    <label>Starvation</label>
+    <input type="range" id="sim-starve" min="0.5" max="20" value="20" step="0.5">
+    <span class="val" id="sim-starve-val">20 %/fr</span>
+  </div>
+  <div class="ctrl">
+    <label>Nomadic %</label>
+    <input type="range" id="sim-mobile" min="0" max="100" value="30" step="1">
+    <span class="val" id="sim-mobile-val">30 %</span>
+  </div>
 </div>
 
 <!-- right legend -->
@@ -656,10 +695,389 @@ document.getElementById('legend').style.display  = 'flex';
 document.getElementById('legend-terrain').style.display = 'none';
 document.getElementById('legend-agri').style.display    = '';
 
+// ── Tribe Simulation ──────────────────────────────────────────────────────────
+const NUM_TRIBES   = 200;
+const INIT_POP     = 100;
+const CONSUME_RATE = 0.012;   // food units consumed per person per frame
+let DECLINE_RATE   = 0.20;    // population factor lost per shortage frame
+let REPLENISH_RATE = 1 / 6;   // fraction of base restored per frame
+let GROWTH_RATE    = 0.05;    // max population growth factor per frame
+let NOMAD_FRAC     = 0.30;    // fraction of tribes born nomadic
+let RADIUS_KM      = 20;
+
+// Harvest-radius offsets — rebuilt when RADIUS_KM changes
+let RDRS = [], RDCS = [];
+let RPX  = 1;   // current radius in pixels
+function rebuildRadius() {
+  RPX  = Math.max(1, Math.round(RADIUS_KM * 1000 / UNIT_M));
+  RDRS = []; RDCS = [];
+  for (let dr = -RPX; dr <= RPX; dr++)
+    for (let dc = -RPX; dc <= RPX; dc++)
+      if (dr*dr + dc*dc <= RPX * RPX) { RDRS.push(dr); RDCS.push(dc); }
+}
+rebuildRadius();
+
+// ── Performance structures (allocated once, reused every frame) ────────────────
+// Cell-ownership flat array: -1 = unclaimed, ≥0 = tribe index
+// Avoids allocating a new Map(~15 000 entries) every simStep
+const _cellOwner  = new Int32Array(COLS * ROWS).fill(-1);
+const _dirtyOwner = [];    // cells written this step → reset after harvest
+const _cIdxs      = [];    // scratch harvest list, reused per tribe (no alloc)
+
+// Spatial bucket grid for O(n) absorption (updated each simStep)
+// Bucket side = RPX so 3×3 neighbourhood covers all pairs within RPX distance
+let _sgBkt = 1, _sgW = 1;
+const _sgGrid = new Map();   // bucket key → [tribe indices]
+
+function updateSpatialGrid() {
+  _sgGrid.clear();
+  _sgBkt = Math.max(1, RPX);
+  _sgW   = Math.ceil(COLS / _sgBkt) + 2;
+  for (let ti = 0; ti < tribes.length; ti++) {
+    const t = tribes[ti];
+    if (t.pop < 1) continue;
+    const key = (Math.floor(t.row / _sgBkt)) * _sgW + Math.floor(t.col / _sgBkt);
+    let b = _sgGrid.get(key);
+    if (!b) { b = []; _sgGrid.set(key, b); }
+    b.push(ti);
+  }
+}
+
+// Snapshot agriculture base score at current slider values
+const agriBase = new Float32Array(COLS * ROWS);
+{
+  const latR  = +document.getElementById('lat-reduce').value;
+  const elevR = +document.getElementById('elev-reduce').value;
+  for (let row = 0; row < ROWS; row++) {
+    const lat    = BOUNDS.north - row * latPerRow;
+    const latFac = Math.max(0, 1 - (latR / 100) * (lat - LAT_REF));
+    for (let col = 0; col < COLS; col++) {
+      const i  = row * COLS + col;
+      if (isWater[i]) continue;
+      const e  = elevData[i];
+      const ef = e >= 0 ? Math.max(0, 1 - (elevR / 100) * (e / 100)) : 0;
+      agriBase[i] = slopeScore[i] * latFac * ef;
+    }
+  }
+}
+
+const resourceCurrent = agriBase.slice();   // starts full
+const depletedCells   = new Set();
+
+function mkTribe(row, col) {
+  return { row, col, pop: INIT_POP, storage: 0, shortage: false, vitality: 0,
+           nomadic: Math.random() < NOMAD_FRAC };
+}
+
+// Random placement on land cells with non-zero agriBase
+const occupied = new Set();
+const tribes   = [];
+function placeTribeRandom() {
+  let att = 0;
+  while (tribes.length < NUM_TRIBES && att < 1000000) {
+    const row = Math.floor(Math.random() * ROWS);
+    const col = Math.floor(Math.random() * COLS);
+    const i   = row * COLS + col;
+    if (!isWater[i] && agriBase[i] > 0.05 && !occupied.has(i)) {
+      tribes.push(mkTribe(row, col));
+      occupied.add(i);
+    }
+    att++;
+  }
+}
+placeTribeRandom();
+
+let simRunning = false;
+let simFrame   = 0;
+let simSpeed   = 1;
+
+// Movement direction table (reused, shuffled in-place per tribe)
+const _M8R = [-1, 1, 0, 0,-1,-1, 1, 1];
+const _M8C = [ 0, 0,-1, 1,-1, 1,-1, 1];
+const _M8I = [0, 1, 2, 3, 4, 5, 6, 7];
+
+function simStep() {
+  simFrame++;
+
+  // 1. Build exclusive cell claims using reusable Int32Array (no Map alloc)
+  _dirtyOwner.length = 0;
+  for (let ti = 0; ti < tribes.length; ti++) {
+    const t = tribes[ti];
+    if (t.pop < 1) continue;
+    const tr = t.row, tc = t.col;
+    for (let k = 0; k < RDRS.length; k++) {
+      const r = tr + RDRS[k], c = tc + RDCS[k];
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
+      const idx = r * COLS + c;
+      if (isWater[idx]) continue;
+      const prev = _cellOwner[idx];
+      if (prev === -1) {
+        _cellOwner[idx] = ti;
+        _dirtyOwner.push(idx);
+      } else if (prev !== ti) {
+        const d1 = RDRS[k]*RDRS[k] + RDCS[k]*RDCS[k];
+        const tp = tribes[prev];
+        const d2 = (r-tp.row)*(r-tp.row) + (c-tp.col)*(c-tp.col);
+        if (d1 < d2) _cellOwner[idx] = ti;
+      }
+    }
+  }
+
+  // 2. Harvest owned cells; capacity = 2× needs so surplus can accumulate
+  for (let ti = 0; ti < tribes.length; ti++) {
+    const t = tribes[ti];
+    if (t.pop < 1) continue;
+    const needed = t.pop * CONSUME_RATE;
+    _cIdxs.length = 0;
+    let total = 0;
+    const tr = t.row, tc = t.col;
+    for (let k = 0; k < RDRS.length; k++) {
+      const r = tr + RDRS[k], c = tc + RDCS[k];
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
+      const idx = r * COLS + c;
+      if (_cellOwner[idx] !== ti) continue;
+      const a = resourceCurrent[idx];
+      if (a > 0) { _cIdxs.push(idx); total += a; }
+    }
+    let collected = 0;
+    if (total > 0) {
+      const frac = Math.min(total, needed * 2) / total;
+      for (let k = 0; k < _cIdxs.length; k++) {
+        const idx = _cIdxs[k];
+        const d = resourceCurrent[idx] * frac;
+        resourceCurrent[idx] -= d;
+        collected += d;
+        if (resourceCurrent[idx] < agriBase[idx] - 1e-6) depletedCells.add(idx);
+      }
+    }
+    t.storage += collected - needed;
+    if (t.storage < 0) {
+      t.shortage = true;
+      t.storage  = 0;
+      t.pop      = Math.max(0, t.pop * (1 - DECLINE_RATE));
+      t.vitality += (-1 - t.vitality) * 0.15;
+    } else {
+      t.shortage = false;
+      const surplusRatio = Math.min(1, t.storage / (t.pop * CONSUME_RATE * 20));
+      t.pop *= 1 + surplusRatio * GROWTH_RATE;
+      t.storage *= 0.98;
+      t.vitality += (surplusRatio - t.vitality) * 0.15;
+    }
+  }
+
+  // Reset ownership array (only dirty cells — O(claimed) not O(map total))
+  for (let d = 0; d < _dirtyOwner.length; d++) _cellOwner[_dirtyOwner[d]] = -1;
+
+  // Helper: move tribe one tile; returns true if moved; costs 1% pop
+  function tryMove(t, shuffle) {
+    if (shuffle) {
+      for (let i = 7; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        const tmp = _M8I[i]; _M8I[i] = _M8I[j]; _M8I[j] = tmp;
+      }
+    }
+    for (let k = 0; k < 8; k++) {
+      const d  = shuffle ? _M8I[k] : (_M8I[(Math.random() * 8) | 0]);
+      const nr = t.row + _M8R[d], nc = t.col + _M8C[d];
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      const ni = nr * COLS + nc;
+      if (isWater[ni] || occupied.has(ni)) continue;
+      occupied.delete(t.row * COLS + t.col);
+      t.row = nr; t.col = nc;
+      occupied.add(ni);
+      t.pop = Math.max(0, t.pop * 0.99);   // 1% cost per move
+      return true;
+    }
+    return false;
+  }
+
+  // 3a. Nomadic tribes always move every frame
+  for (const t of tribes) {
+    if (t.pop < 1 || !t.nomadic) continue;
+    tryMove(t, false);
+  }
+
+  // 3b. Sedentary tribes move only on shortage
+  for (const t of tribes) {
+    if (t.pop < 1 || t.nomadic || !t.shortage) continue;
+    tryMove(t, true);
+  }
+
+  // 4. Absorption via spatial bucket grid — O(n) average instead of O(n²)
+  updateSpatialGrid();
+  for (let ti = 0; ti < tribes.length; ti++) {
+    if (tribes[ti].pop < 1) continue;
+    const bx = Math.floor(tribes[ti].col / _sgBkt);
+    const by = Math.floor(tribes[ti].row / _sgBkt);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const bucket = _sgGrid.get((by + dy) * _sgW + (bx + dx));
+        if (!bucket) continue;
+        for (let k = 0; k < bucket.length; k++) {
+          const tj = bucket[k];
+          if (tj <= ti || tribes[tj].pop < 1) continue;
+          const dr = tribes[ti].row - tribes[tj].row;
+          const dc = tribes[ti].col - tribes[tj].col;
+          if (dr*dr + dc*dc > RPX * RPX) continue;
+          const [big, sml] = tribes[ti].pop >= tribes[tj].pop
+            ? [tribes[ti], tribes[tj]] : [tribes[tj], tribes[ti]];
+          big.pop += sml.pop; big.storage += sml.storage;
+          occupied.delete(sml.row * COLS + sml.col);
+          sml.pop = 0;
+        }
+      }
+    }
+  }
+
+  // 5. Split — chance = clamp(log20(pop/1000), 0,1) × 0.003 per frame
+  const newTribes = [];
+  for (const t of tribes) {
+    if (t.pop < 1001) continue;
+    const chance = Math.max(0, Math.min(1, Math.log(t.pop / 1000) / Math.log(20))) * 0.003;
+    if (Math.random() > chance) continue;
+    const angle = Math.random() * Math.PI * 2;
+    const nr = Math.round(t.row + Math.sin(angle) * (RPX + 2));
+    const nc = Math.round(t.col + Math.cos(angle) * (RPX + 2));
+    if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+    const ni = nr * COLS + nc;
+    if (isWater[ni] || occupied.has(ni)) continue;
+    const half = t.pop / 2;
+    t.pop = half; t.storage /= 2;
+    const child = mkTribe(nr, nc);
+    child.pop = half; child.storage = t.storage;
+    occupied.add(ni);
+    newTribes.push(child);
+  }
+  for (const t of newTribes) tribes.push(t);
+
+  // 6. Replenish depleted cells
+  for (const idx of depletedCells) {
+    resourceCurrent[idx] = Math.min(agriBase[idx], resourceCurrent[idx] + agriBase[idx] * REPLENISH_RATE);
+    if (resourceCurrent[idx] >= agriBase[idx] - 1e-6) {
+      resourceCurrent[idx] = agriBase[idx];
+      depletedCells.delete(idx);
+    }
+  }
+
+  // 7. Prune dead tribes every 200 frames to keep array compact
+  if (simFrame % 200 === 0) {
+    let w = 0;
+    for (let i = 0; i < tribes.length; i++) if (tribes[i].pop >= 1) tribes[w++] = tribes[i];
+    tribes.length = w;
+  }
+}
+
+// 2D overlay canvas — tribe dots projected from 3D world space
+const simCanvas = document.createElement('canvas');
+simCanvas.style.cssText = 'position:fixed;inset:0;pointer-events:none;';
+document.body.appendChild(simCanvas);
+const simCtx = simCanvas.getContext('2d');
+function resizeSimCanvas() { simCanvas.width = innerWidth; simCanvas.height = innerHeight; }
+resizeSimCanvas();
+window.addEventListener('resize', resizeSimCanvas);
+
+const _tv = new THREE.Vector3();
+function drawTribes() {
+  simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+  for (const t of tribes) {
+    if (t.pop < 1) continue;
+    const i  = t.row * COLS + t.col;
+    _tv.set(
+      (t.col / (COLS - 1) - 0.5) * COLS,
+      (elevData[i] / UNIT_M) * currentExag + 6,
+      (t.row / (ROWS - 1) - 0.5) * ROWS
+    ).project(camera);
+    if (_tv.z > 1) continue;   // behind camera
+    const sx = (_tv.x *  0.5 + 0.5) * simCanvas.width;
+    const sy = (_tv.y * -0.5 + 0.5) * simCanvas.height;
+    const r  = Math.max(2, Math.sqrt(t.pop) * 0.14);
+    // vitality: -1 (starving/red) → 0 (stagnant/orange) → 1 (growing/yellow)
+    const v  = Math.max(-1, Math.min(1, t.vitality));
+    let cr, cg, cb;
+    if (v < 0) {
+      // red → orange
+      const s = v + 1;   // 0..1
+      cr = 210; cg = Math.round(45 + s * 85); cb = Math.round(20 - s * 5);
+    } else {
+      // orange → yellow
+      cr = Math.round(210 + v * 30); cg = Math.round(130 + v * 80); cb = Math.round(15 - v * 10);
+    }
+    simCtx.beginPath();
+    simCtx.arc(sx, sy, r, 0, Math.PI * 2);
+    simCtx.fillStyle = `rgba(${cr},${cg},${cb},0.88)`;
+    simCtx.fill();
+    simCtx.strokeStyle = 'rgba(255,255,255,0.7)';
+    simCtx.lineWidth = 0.8;
+    simCtx.stroke();
+  }
+}
+
+function updateSimStats() {
+  const alive  = tribes.filter(t => t.pop >= 1).length;
+  const totPop = Math.round(tribes.reduce((s, t) => s + t.pop, 0));
+  document.getElementById('sim-stats').textContent =
+    `Tribes: ${alive}/${NUM_TRIBES}  ·  Pop: ${totPop}  ·  Frame: ${simFrame}`;
+}
+
+document.getElementById('sim-btn').addEventListener('click', () => {
+  simRunning = !simRunning;
+  document.getElementById('sim-btn').innerHTML = simRunning ? '&#9646;&#9646; Pause' : '&#9654; Run';
+});
+
+document.getElementById('sim-reset').addEventListener('click', () => {
+  simRunning = false;
+  document.getElementById('sim-btn').innerHTML = '&#9654; Run';
+  simFrame = 0;
+  resourceCurrent.set(agriBase);
+  depletedCells.clear();
+  occupied.clear();
+  tribes.length = 0;
+  placeTribeRandom();
+  updateSimStats();
+  drawTribes();
+});
+
+document.getElementById('sim-speed').addEventListener('input', function() {
+  simSpeed = +this.value;
+  document.getElementById('sim-speed-val').textContent = simSpeed + '×';
+});
+
+document.getElementById('sim-radius').addEventListener('input', function() {
+  RADIUS_KM = +this.value;
+  document.getElementById('sim-radius-val').textContent = RADIUS_KM + ' km';
+  rebuildRadius();
+});
+
+document.getElementById('sim-replenish').addEventListener('input', function() {
+  const x = +this.value;
+  REPLENISH_RATE = 1 / x;
+  document.getElementById('sim-replenish-val').textContent = `1/${x} /fr`;
+});
+
+document.getElementById('sim-growth').addEventListener('input', function() {
+  GROWTH_RATE = +this.value / 100;
+  document.getElementById('sim-growth-val').textContent = (+this.value).toFixed(1) + ' %/fr';
+});
+
+document.getElementById('sim-starve').addEventListener('input', function() {
+  DECLINE_RATE = +this.value / 100;
+  document.getElementById('sim-starve-val').textContent = (+this.value).toFixed(1) + ' %/fr';
+});
+
+document.getElementById('sim-mobile').addEventListener('input', function() {
+  NOMAD_FRAC = +this.value / 100;
+  document.getElementById('sim-mobile-val').textContent = this.value + ' %';
+});
+
 // ── Render loop ───────────────────────────────────────────────────────────────
 renderer.setAnimationLoop(() => {
   controls.update();
+  if (simRunning) {
+    for (let s = 0; s < simSpeed; s++) simStep();
+    updateSimStats();
+  }
   renderer.render(scene, camera);
+  drawTribes();
 });
 </script>
 </body>
