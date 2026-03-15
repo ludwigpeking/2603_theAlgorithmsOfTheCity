@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>III. Pathfindings — Algorithms of the City</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:     #ffffff;
+  --panel:  #f5f5f5;
+  --border: #d0d0d0;
+  --text:   #1a1a1a;
+  --muted:  #666666;
+  --blue:   #1a5faa;
+  --red:    #c0392b;
+}
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text);
+       font-family: 'Georgia', serif; font-size: 16px; line-height: 1.75; }
+
+/* ── NAV ─────────────────────────────────────────────────────────────── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(255,255,255,0.95); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 0; overflow-x: auto;
+  padding: 0 24px;
+}
+nav a {
+  display: block; padding: 12px 16px;
+  font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.75rem;
+  color: var(--muted); text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color .2s, border-color .2s;
+}
+nav a:hover, nav a.active { color: var(--blue); border-bottom-color: var(--blue); }
+nav .nav-title { color: var(--text); font-weight: 600; margin-right: 12px;
+                 font-size: 0.78rem; white-space: nowrap; letter-spacing: .04em; }
+
+/* ── LAYOUT ──────────────────────────────────────────────────────────── */
+.page-wrap { max-width: 1100px; margin: 0 auto; padding: 80px 32px 80px; }
+.chapter-header { padding: 60px 0 40px; border-bottom: 1px solid var(--border); margin-bottom: 64px; }
+.chapter-header h1 { font-size: 2.2rem; color: var(--text); font-weight: 400; letter-spacing: .02em; }
+.chapter-header p { margin-top: 14px; color: var(--muted); max-width: 680px; font-size: 1rem; }
+
+/* ── SECTION ─────────────────────────────────────────────────────────── */
+.section {
+  display: grid; grid-template-columns: 1fr 480px; gap: 48px;
+  padding: 56px 0; border-bottom: 1px solid var(--border);
+}
+.section:last-child { border-bottom: none; }
+.section-text h2 {
+  font-size: 1.35rem; font-weight: 400; color: var(--blue);
+  margin-bottom: 6px; font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.section-num { font-size: 0.72rem; color: var(--muted); font-family: monospace;
+               letter-spacing: .08em; margin-bottom: 4px; }
+.section-text p { color: var(--muted); font-size: 0.93rem; margin-top: 14px; }
+.section-text p:first-of-type { color: var(--text); }
+
+pre {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  padding: 16px 18px; margin-top: 20px; overflow-x: auto;
+  font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace; font-size: 0.76rem;
+  line-height: 1.6; color: #1a1a1a;
+}
+pre .kw  { color: var(--red); }
+pre .cm  { color: #888888; font-style: italic; }
+pre .fn  { color: var(--blue); }
+pre .nm  { color: #333333; font-weight: 600; }
+pre .op  { color: #555555; }
+
+/* ── SIM PANEL ───────────────────────────────────────────────────────── */
+.sim-panel {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.sim-canvas-wrap { position: relative; width: 100%; }
+.sim-canvas-wrap canvas { display: block; width: 100%; height: auto;
+                           border-bottom: 1px solid var(--border); }
+.sim-controls {
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--panel);
+}
+.sim-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sim-label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 0.7rem;
+             color: var(--muted); flex: 0 0 100px; }
+.sim-row input[type=range]    { flex: 1; min-width: 80px; accent-color: var(--blue); }
+.sim-row input[type=checkbox] { accent-color: var(--blue); }
+.sim-val { font-size: 0.7rem; color: var(--blue); min-width: 32px; text-align: right;
+           font-family: monospace; }
+.sim-btns { display: flex; gap: 6px; margin-top: 4px; }
+.sim-btns button {
+  flex: 1; padding: 5px 0; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--text); font-size: 0.7rem; cursor: pointer;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.sim-btns button:hover:not(:disabled) { background: #e8e8e8; }
+.sim-btns button:disabled { opacity: .35; cursor: default; }
+.sim-stat { font-size: 0.68rem; color: var(--muted); font-family: monospace;
+            display: flex; justify-content: space-between; }
+.sim-stat span { color: var(--text); }
+.sim-preset-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.sim-preset-row button {
+  padding: 3px 9px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px; color: var(--muted); font-size: 0.68rem; cursor: pointer;
+}
+.sim-preset-row button.active { border-color: var(--blue); color: var(--blue); background: #eef3fa; }
+.sim-preset-row button:hover { background: #e8e8e8; }
+
+@media (max-width: 860px) {
+  .section { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">III · Pathfindings</span>
+  <a href="#s1">1 · Distance</a>
+  <a href="#s2">2 · Elevation</a>
+  <a href="#s3">3 · Modes</a>
+  <a href="#s4">4 · Intermodal</a>
+  <a href="#s5">5 · Path Dependency</a>
+</nav>
+
+<div class="page-wrap">
+
+<header class="chapter-header">
+  <h1>III · Pathfindings</h1>
+  <p>Movement through space is never free. Every path is a negotiation between the traveller's
+     goal and the resistance of the terrain — distance, slope, water, prior use. This chapter
+     traces how those constraints have shaped the routes cities grow along, from the first
+     shepherd's shortcut to the rail corridor.</p>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════ 1. DISTANCE -->
+<section class="section" id="s1">
+<div class="section-text">
+  <div class="section-num">III.1</div>
+  <h2>Distance-Based Pathfinding</h2>
+  <p>The simplest account of movement is pure distance: a traveller chooses the route
+     that minimises total ground covered, treating every step as equal regardless of
+     what lies underfoot. This is the straight-line instinct — the crow's path — and it
+     remains a useful baseline against which every real friction is measured.</p>
+  <p>In practice, pure distance paths follow ridges and cross rivers wherever they happen
+     to be shortest. They ignore the cost of climbing, the danger of water, and the
+     benefit of worn tracks. Yet the heuristic is not idle: in open flat terrain with no
+     barriers it produces exactly the paths people take.</p>
+  <p>The simulation here sets all terrain penalties to zero. Only cell-to-cell Euclidean
+     distance drives the cost. Watch how routes cut straight across hills and wade
+     through rivers without hesitation.</p>
+
+  <pre><span class="cm">// Distance-only A*</span>
+<span class="kw">function</span> <span class="fn">edgeCost</span>(i, d):
+  dist  <span class="op">=</span> DD16[d]          <span class="cm">// 1, √2, or √5 cell-lengths</span>
+  <span class="kw">return</span> dist              <span class="cm">// nothing else matters</span>
+
+<span class="kw">function</span> <span class="fn">heuristic</span>(a, b):
+  <span class="kw">return</span> euclidean(a, b)   <span class="cm">// admissible: never overestimates</span>
+
+<span class="fn">aStar</span>(start, goal, edgeCost, heuristic)</pre>
+</div>
+<div class="sim-panel" id="sim1">
+  <div class="sim-canvas-wrap"><canvas id="cv1" width="512" height="338"></canvas></div>
+  <div class="sim-controls">
+    <div class="sim-row">
+      <span class="sim-label">Travels</span>
+      <input type="number" id="s1-total" value="200" min="1" max="2000" step="50"
+             style="width:64px;background:#ffffff;color:#1a1a1a;border:1px solid #d0d0d0;
+                    border-radius:4px;padding:2px 5px;font-size:0.7rem;">
+      <span id="s1-count" class="sim-val" style="min-width:60px">0 / 200</span>
+    </div>
+    <div class="sim-btns">
+      <button id="s1-start">▶ Start</button>
+      <button id="s1-stop" disabled>■ Stop</button>
+      <button id="s1-reset">↺ Reset</button>
+    </div>
+    <div class="sim-stat">Paths found <span id="s1-found">0</span></div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ 2. ELEVATION -->
+<section class="section" id="s2">
+<div class="section-text">
+  <div class="section-num">III.2</div>
+  <h2>Elevation-Change Cost</h2>
+  <p>Terrain is not flat. Ascending a slope costs energy; descending costs control and
+     safety. Once elevation change enters the cost function, routes bend away from
+     mountains and towards valleys, saddles, and river plains — the same topographic
+     logic that placed Rome's roads along the gentle gradients between her hills.</p>
+  <p>Uphill and downhill costs need not be equal. A laden mule exhausts itself climbing;
+     it merely risks a stumble going down. Early road builders intuitively calibrated
+     these asymmetries, choosing routes that traded extra distance for manageable grades.</p>
+  <p>Adjust the uphill and downhill penalties and watch the paths retreat from steep
+     slopes and converge on passes and valley floors.</p>
+
+  <pre><span class="cm">// Elevation-weighted edge cost</span>
+<span class="kw">function</span> <span class="fn">edgeCost</span>(i, d):
+  dist   <span class="op">=</span> DD16[d] <span class="op">*</span> UNIT_M        <span class="cm">// metres</span>
+  dElev  <span class="op">=</span> elev[nbr] <span class="op">-</span> elev[i]
+
+  <span class="kw">if</span> dElev <span class="op">></span> 0:
+    cost <span class="op">=</span> dist <span class="op">+</span> <span class="nm">uphill</span>   <span class="op">*</span> dElev
+  <span class="kw">else</span>:
+    cost <span class="op">=</span> dist <span class="op">+</span> <span class="nm">downhill</span> <span class="op">*</span> |dElev|
+
+  <span class="kw">return</span> cost</pre>
+</div>
+<div class="sim-panel" id="sim2">
+  <div class="sim-canvas-wrap"><canvas id="cv2" width="512" height="338"></canvas></div>
+  <div class="sim-controls">
+    <div class="sim-row">
+      <span class="sim-label">Uphill ×</span>
+      <input type="range" id="s2-up" min="0" max="30" step="1" value="10">
+      <span class="sim-val" id="s2-up-v">10</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Downhill ×</span>
+      <input type="range" id="s2-dn" min="0" max="30" step="1" value="5">
+      <span class="sim-val" id="s2-dn-v">5</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Max slope %</span>
+      <input type="range" id="s2-sl" min="5" max="100" step="5" value="40">
+      <span class="sim-val" id="s2-sl-v">40</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Travels</span>
+      <input type="number" id="s2-total" value="200" min="1" max="2000" step="50"
+             style="width:64px;background:#ffffff;color:#1a1a1a;border:1px solid #d0d0d0;
+                    border-radius:4px;padding:2px 5px;font-size:0.7rem;">
+      <span id="s2-count" class="sim-val" style="min-width:60px">0 / 200</span>
+    </div>
+    <div class="sim-btns">
+      <button id="s2-start">▶ Start</button>
+      <button id="s2-stop" disabled>■ Stop</button>
+      <button id="s2-reset">↺ Reset</button>
+    </div>
+    <div class="sim-stat">Paths found <span id="s2-found">0</span></div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ 3. MODES -->
+<section class="section" id="s3">
+<div class="section-text">
+  <div class="section-num">III.3</div>
+  <h2>Modes of Transportation</h2>
+  <p>Not all travellers are equal before the same slope. A pedestrian scrambles over
+     terrain that would halt a loaded cart; a boat glides where every other mode stalls.
+     Each technology defines its own cost surface across the landscape, and the paths
+     that emerge from each surface are distinct.</p>
+  <p>Roman roads were engineered for the cart — broad, graded, paved — tolerating no
+     more than about 8–10% grade. Mule tracks wound steeper. Aqueducts demanded near-
+     perfect level. Waterways ignored slope entirely, paying instead for portage at every
+     division.</p>
+  <p>Select a transport mode and observe how the network reconfigures. Cart routes
+     cluster in valleys; pedestrian routes cut directly across ridges; watercraft
+     abandon the land entirely.</p>
+
+  <pre><span class="cm">// Mode-dependent slope sensitivity</span>
+MODES <span class="op">=</span> {
+  pedestrian: { uphill: 4,  downhill: 2,  maxSlope: 60, waterCost: 8   },
+  mule:       { uphill: 8,  downhill: 4,  maxSlope: 30, waterCost: 20  },
+  cart:       { uphill: 15, downhill: 8,  maxSlope: 12, waterCost: 100 },
+  watercraft: { uphill: 0,  downhill: 0,  maxSlope: 0,  waterCost: 0.1 },
+}
+
+cost <span class="op">=</span> baseDist
+     <span class="op">+</span> mode.uphill   <span class="op">×</span> max(0,  dElev)
+     <span class="op">+</span> mode.downhill <span class="op">×</span> max(0, -dElev)
+<span class="kw">if</span> slope <span class="op">></span> mode.maxSlope: cost <span class="op">=</span> ∞   <span class="cm">// impassable</span>
+<span class="kw">if</span> isWater: cost <span class="op">*=</span> mode.waterCost</pre>
+</div>
+<div class="sim-panel" id="sim3">
+  <div class="sim-canvas-wrap"><canvas id="cv3" width="512" height="338"></canvas></div>
+  <div class="sim-controls">
+    <div class="sim-row sim-preset-row" id="s3-presets">
+      <button data-mode="pedestrian" class="active">Pedestrian</button>
+      <button data-mode="mule">Mule</button>
+      <button data-mode="cart">Cart</button>
+      <button data-mode="watercraft">Watercraft</button>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Uphill ×</span>
+      <input type="range" id="s3-up" min="0" max="30" step="1" value="4">
+      <span class="sim-val" id="s3-up-v">4</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Downhill ×</span>
+      <input type="range" id="s3-dn" min="0" max="30" step="1" value="2">
+      <span class="sim-val" id="s3-dn-v">2</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Max slope %</span>
+      <input type="range" id="s3-sl" min="0" max="100" step="5" value="60">
+      <span class="sim-val" id="s3-sl-v">60</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Water factor</span>
+      <input type="range" id="s3-wf" min="0.1" max="100" step="0.1" value="8">
+      <span class="sim-val" id="s3-wf-v">8</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Travels</span>
+      <input type="number" id="s3-total" value="200" min="1" max="2000" step="50"
+             style="width:64px;background:#ffffff;color:#1a1a1a;border:1px solid #d0d0d0;
+                    border-radius:4px;padding:2px 5px;font-size:0.7rem;">
+      <span id="s3-count" class="sim-val" style="min-width:60px">0 / 200</span>
+    </div>
+    <div class="sim-btns">
+      <button id="s3-start">▶ Start</button>
+      <button id="s3-stop" disabled>■ Stop</button>
+      <button id="s3-reset">↺ Reset</button>
+    </div>
+    <div class="sim-stat">Paths found <span id="s3-found">0</span></div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ 4. INTERMODAL -->
+<section class="section" id="s4">
+<div class="section-text">
+  <div class="section-num">III.4</div>
+  <h2>Intermodal Pathfinding</h2>
+  <p>No single mode dominates every environment. The most efficient journeys in
+     pre-industrial Rome combined boat along the Tiber, cart along the Via Appia, and
+     foot for the last mile into the hills. But changing modes is expensive: cargo must
+     be unloaded, repacked, transferred, and reloaded. Animals must be exchanged.
+     Vessels must find harbour.</p>
+  <p>Each modal transition carries a fixed penalty that represents this friction —
+     the toll of the warehouse, the wait at the dock, the cost of the carter's guild.
+     When that penalty is low, routes fragment into many short modal segments;
+     when high, travellers commit to a single mode for the whole journey even at the
+     cost of efficiency.</p>
+  <p>The simulation computes the cheapest combined route across two modes (land and
+     water), penalising every shore crossing by the transition cost. Red cells mark
+     where crossings concentrate into natural terminals — the embryo of a port.</p>
+
+  <pre><span class="cm">// Intermodal edge cost</span>
+<span class="kw">function</span> <span class="fn">edgeCost</span>(i, d):
+  base <span class="op">=</span> movementCost(i, d, currentMode(i))
+
+  <span class="kw">if</span> isWater[i] <span class="op">≠</span> isWater[nbr]:
+    base <span class="op">+=</span> TRANSITION_PENALTY   <span class="cm">// modal switch cost</span>
+
+  <span class="kw">return</span> base
+
+<span class="cm">// Transition penalty decays with established crossings:</span>
+penalty(tc) <span class="op">=</span> P_TRANSITION <span class="op">×</span> 0.5^tc
+<span class="cm">// (a ford, dock, or bridge reduces the cost to near zero)</span></pre>
+</div>
+<div class="sim-panel" id="sim4">
+  <div class="sim-canvas-wrap"><canvas id="cv4" width="512" height="338"></canvas></div>
+  <div class="sim-controls">
+    <div class="sim-row">
+      <span class="sim-label">Shore penalty</span>
+      <input type="range" id="s4-tr" min="0" max="200" step="5" value="60">
+      <span class="sim-val" id="s4-tr-v">60</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Water factor</span>
+      <input type="range" id="s4-wf" min="0.1" max="5" step="0.1" value="0.3">
+      <span class="sim-val" id="s4-wf-v">0.3</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Uphill ×</span>
+      <input type="range" id="s4-up" min="0" max="30" step="1" value="10">
+      <span class="sim-val" id="s4-up-v">10</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Max slope %</span>
+      <input type="range" id="s4-sl" min="5" max="100" step="5" value="15">
+      <span class="sim-val" id="s4-sl-v">15</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Travels</span>
+      <input type="number" id="s4-total" value="200" min="1" max="2000" step="50"
+             style="width:64px;background:#ffffff;color:#1a1a1a;border:1px solid #d0d0d0;
+                    border-radius:4px;padding:2px 5px;font-size:0.7rem;">
+      <span id="s4-count" class="sim-val" style="min-width:60px">0 / 200</span>
+    </div>
+    <div class="sim-btns">
+      <button id="s4-start">▶ Start</button>
+      <button id="s4-stop" disabled>■ Stop</button>
+      <button id="s4-reset">↺ Reset</button>
+    </div>
+    <div class="sim-stat">Paths found <span id="s4-found">0</span></div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ 5. PATH DEPENDENCY -->
+<section class="section" id="s5">
+<div class="section-text">
+  <div class="section-num">III.5</div>
+  <h2>Path Dependency</h2>
+  <p>A path used once is easier to use again. Vegetation is trampled; the surface
+     compacts; the route becomes known. With investment, a track becomes a road: graded,
+     drained, paved. Each improvement further concentrates traffic, which justifies
+     further improvement. The result is a self-reinforcing network — a small number of
+     dominant corridors emerge from what began as a uniform probability field.</p>
+  <p>This is path dependency: the cost of movement through a given edge decreases as
+     a function of how many times it has been traversed. The reduction is multiplicative
+     and asymptotic — a well-worn road eventually costs half what a virgin path does,
+     but never zero. The shape of that decay curve determines whether the network
+     consolidates quickly into a few highways or spreads evenly across the terrain.</p>
+  <p>Run the simulation with path dependency off first, then on. The contrast reveals
+     how much of Rome's road pattern is terrain, and how much is history.</p>
+
+  <pre><span class="cm">// Path-dependent edge cost</span>
+<span class="kw">function</span> <span class="fn">edgeCost</span>(i, d):
+  base <span class="op">=</span> nbrBase[i, d]          <span class="cm">// static terrain cost</span>
+  tc   <span class="op">=</span> nbrTc[i, d]            <span class="cm">// travel count on this edge</span>
+
+  factor <span class="op">=</span> 0.5 <span class="op">+</span> 0.5^(tc <span class="op">+</span> 1)
+  <span class="cm">// tc=0 → 1.0  (full cost, virgin ground)</span>
+  <span class="cm">// tc=1 → 0.75 (worn track)</span>
+  <span class="cm">// tc=4 → 0.53 (established road)</span>
+  <span class="cm">// tc→∞ → 0.50 (paved highway, minimum)</span>
+
+  <span class="kw">return</span> base <span class="op">×</span> factor
+
+<span class="cm">// Shore crossing penalty decays independently to zero:</span>
+shoreCost(tc) <span class="op">=</span> P_TRANSITION <span class="op">×</span> 0.5^tc</pre>
+</div>
+<div class="sim-panel" id="sim5">
+  <div class="sim-canvas-wrap"><canvas id="cv5" width="512" height="338"></canvas></div>
+  <div class="sim-controls">
+    <div class="sim-row">
+      <span class="sim-label">Path dep.</span>
+      <input type="checkbox" id="s5-dep" checked>
+      <span style="font-size:0.7rem;color:var(--muted)">reduces cost on reused edges</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Uphill ×</span>
+      <input type="range" id="s5-up" min="0" max="30" step="1" value="10">
+      <span class="sim-val" id="s5-up-v">10</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Downhill ×</span>
+      <input type="range" id="s5-dn" min="0" max="30" step="1" value="5">
+      <span class="sim-val" id="s5-dn-v">5</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Max slope %</span>
+      <input type="range" id="s5-sl" min="5" max="60" step="5" value="15">
+      <span class="sim-val" id="s5-sl-v">15</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Shore penalty</span>
+      <input type="range" id="s5-tr" min="0" max="100" step="5" value="30">
+      <span class="sim-val" id="s5-tr-v">30</span>
+    </div>
+    <div class="sim-row">
+      <span class="sim-label">Travels</span>
+      <input type="number" id="s5-total" value="400" min="1" max="2000" step="50"
+             style="width:64px;background:#ffffff;color:#1a1a1a;border:1px solid #d0d0d0;
+                    border-radius:4px;padding:2px 5px;font-size:0.7rem;">
+      <span id="s5-count" class="sim-val" style="min-width:60px">0 / 400</span>
+    </div>
+    <div class="sim-btns">
+      <button id="s5-start">▶ Start</button>
+      <button id="s5-stop" disabled>■ Stop</button>
+      <button id="s5-reset">↺ Reset</button>
+    </div>
+    <div class="sim-stat">Paths found <span id="s5-found">0</span></div>
+  </div>
+</div>
+</section>
+
+</div><!-- /page-wrap -->
+
+<script>
+'use strict';
+// ══════════════════════════════════════════════════════════════════════════════
+// SHARED TERRAIN DATA
+// ══════════════════════════════════════════════════════════════════════════════
+const COLS   = 512;
+const ROWS   = 338;
+const MIN_E  = -8.0;
+const MAX_E  = 1792.0;
+const UNIT_M = 187.6;
+const N      = COLS * ROWS;
+const NDIRS  = 16;
+const SQ2    = Math.SQRT2, SQ5 = Math.sqrt(5);
+const DR16   = new Int8Array([-1,1,0,0,-1,-1,1,1, -2,-2,2,2,-1,-1,1,1]);
+const DC16   = new Int8Array([ 0,0,-1,1,-1,1,-1,1, -1,1,-1,1,-2,2,-2,2]);
+const DD16   = new Float32Array([1,1,1,1, SQ2,SQ2,SQ2,SQ2, SQ5,SQ5,SQ5,SQ5, SQ5,SQ5,SQ5,SQ5]);
+
+// Shared arrays filled once after images load
+let elevData, isWater, nbrIdx, nbrDElev;
+let baseImageData;   // raw RGBA of heightmap_color.png for canvas background
+
+function readImg(src, w, h) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const cv = Object.assign(document.createElement('canvas'), {width:w, height:h});
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      res(ctx.getImageData(0, 0, w, h));
+    };
+    img.onerror = () => rej(new Error('Cannot load ' + src));
+    img.src = src;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SIMULATION ENGINE CLASS  — one instance per section
+// ══════════════════════════════════════════════════════════════════════════════
+class SimEngine {
+  constructor(cvId, P, opts = {}) {
+    this.canvas = document.getElementById(cvId);
+    this.ctx    = this.canvas.getContext('2d');
+    this.P      = { ...P };
+    this.usePathDep = opts.usePathDep ?? false;
+    this.useKnight  = opts.useKnight  ?? true;
+
+    // Per-instance cost & state arrays
+    this.nbrBase       = new Float32Array(N * NDIRS).fill(Infinity);
+    this.nbrTc         = new Uint32Array(N * NDIRS);
+    this.cellUsage     = new Uint32Array(N);
+    this.cellTransCount= new Uint32Array(N);
+    this.landPool      = [];
+    this.isFarmable    = null;   // built after buildBaseCosts
+
+    this.travel  = 0;
+    this.found   = 0;
+    this.running = false;
+    this.timer   = null;
+  }
+
+  buildBaseCosts() {
+    const P = this.P;
+    const slopeLimit = P.maxSlope > 0 ? P.maxSlope / 100 : Infinity;
+    const nbrBase = this.nbrBase;
+    nbrBase.fill(Infinity);
+    for (let i = 0; i < N; i++) {
+      const wCur = isWater[i];
+      for (let d = 0; d < NDIRS; d++) {
+        const nb = nbrIdx[i * NDIRS + d]; if (nb < 0) continue;
+        const dist  = DD16[d];
+        const dElev = nbrDElev[i * NDIRS + d];
+        const slope = Math.abs(dElev) / (dist * UNIT_M);
+        if (slope > slopeLimit) continue;
+        const wNb = isWater[nb];
+        let cost = (wCur && wNb) ? dist * P.waterFactor : dist;
+        if (dElev > 0) cost += P.uphill   * dElev / UNIT_M;
+        else           cost += P.downhill  * (-dElev) / UNIT_M;
+        if (!!wCur !== !!wNb) cost += P.transition;
+        nbrBase[i * NDIRS + d] = cost;
+      }
+    }
+    this._buildFarmable();
+    this._buildLandPool();
+  }
+
+  _buildFarmable() {
+    this.isFarmable = new Uint8Array(N);
+    for (let i = 0; i < N; i++) {
+      if (isWater[i]) continue;
+      let maxSlope = 0;
+      for (let d = 0; d < 8; d++) {
+        const nb = nbrIdx[i * NDIRS + d]; if (nb < 0) continue;
+        const sl = Math.abs(nbrDElev[i * NDIRS + d]) / (DD16[d] * UNIT_M);
+        if (sl > maxSlope) maxSlope = sl;
+      }
+      if (maxSlope >= 0.001 && maxSlope <= 0.10) this.isFarmable[i] = 1;
+    }
+  }
+
+  _buildLandPool() {
+    this.landPool = [];
+    if (!this.isFarmable) return;
+    for (let i = 0; i < N; i++) {
+      if (!this.isFarmable[i]) continue;
+      for (let d = 0; d < 8; d++) {
+        if (isFinite(this.nbrBase[i * NDIRS + d])) { this.landPool.push(i); break; }
+      }
+    }
+  }
+
+  edgeCost(i, d) {
+    const base = this.nbrBase[i * NDIRS + d];
+    if (!isFinite(base)) return Infinity;
+    if (!this.usePathDep) return base;
+    const tc = this.nbrTc[i * NDIRS + d];
+    const moveFactor = 0.5 + Math.pow(0.5, tc + 1);
+    const nb = nbrIdx[i * NDIRS + d];
+    if (nb >= 0 && (!!isWater[i] !== !!isWater[nb])) {
+      const transCost = this.P.transition * Math.pow(0.5, tc);
+      return (base - this.P.transition) * moveFactor + transCost;
+    }
+    return base * moveFactor;
+  }
+
+  aStar(start, goal) {
+    const dirs = this.useKnight ? NDIRS : 8;
+    const dist  = new Float32Array(N).fill(Infinity);
+    const prev  = new Int32Array(N).fill(-1);
+    dist[start] = 0;
+    // MinHeap
+    const heap = [[0, start]];
+    const hGoalR = Math.floor(goal / COLS), hGoalC = goal % COLS;
+    const heur = i => {
+      const dr = Math.floor(i/COLS) - hGoalR, dc = (i%COLS) - hGoalC;
+      return Math.sqrt(dr*dr + dc*dc);
+    };
+    while (heap.length) {
+      const [f, cur] = heapPop(heap);
+      if (cur === goal) break;
+      if (f > dist[cur] + 1e-6) continue;
+      for (let d = 0; d < dirs; d++) {
+        const nb = nbrIdx[cur * NDIRS + d]; if (nb < 0) continue;
+        const c  = this.edgeCost(cur, d);  if (!isFinite(c)) continue;
+        const nd = dist[cur] + c;
+        if (nd < dist[nb]) {
+          dist[nb] = nd; prev[nb] = cur;
+          heapPush(heap, [nd + heur(nb), nb]);
+        }
+      }
+    }
+    if (dist[goal] === Infinity) return null;
+    const path = [];
+    for (let c = goal; c !== -1; c = prev[c]) path.push(c);
+    return path.reverse();
+  }
+
+  recordPath(path) {
+    for (let k = 0; k < path.length - 1; k++) {
+      const cur = path[k], nb = path[k+1];
+      this.cellUsage[cur]++;
+      for (let d = 0; d < NDIRS; d++) {
+        if (nbrIdx[cur*NDIRS+d] === nb) { this.nbrTc[cur*NDIRS+d]++; break; }
+      }
+      for (let d = 0; d < NDIRS; d++) {
+        if (nbrIdx[nb*NDIRS+d] === cur) { this.nbrTc[nb*NDIRS+d]++; break; }
+      }
+      if (!!isWater[cur] !== !!isWater[nb]) {
+        this.cellTransCount[cur]++;
+        this.cellTransCount[nb]++;
+      }
+    }
+    if (path.length) this.cellUsage[path[path.length-1]]++;
+  }
+
+  randomCell() {
+    return this.landPool[Math.floor(Math.random() * this.landPool.length)];
+  }
+
+  start(totalEl, countEl, foundEl, startBtn, stopBtn) {
+    if (this.running) return;
+    this.running = true;
+    startBtn.disabled = true; stopBtn.disabled = false;
+    const tick = () => {
+      const total = Math.max(1, +totalEl.value || 100);
+      for (let r = 0; r < 4 && this.travel < total; r++) {
+        const s = this.randomCell(), g = this.randomCell();
+        if (s === g) { r--; continue; }
+        const path = this.aStar(s, g);
+        this.travel++;
+        if (path && path.length > 1) { this.recordPath(path); this.found++; }
+      }
+      countEl.textContent = `${this.travel} / ${Math.max(1, +totalEl.value||100)}`;
+      foundEl.textContent = this.found;
+      this.paint();
+      if (this.travel < Math.max(1, +totalEl.value||100)) {
+        this.timer = setTimeout(tick, 500);
+      } else {
+        this.stop(startBtn, stopBtn);
+      }
+    };
+    tick();
+  }
+
+  stop(startBtn, stopBtn) {
+    this.running = false;
+    clearTimeout(this.timer);
+    startBtn.disabled = false; stopBtn.disabled = true;
+  }
+
+  reset(totalEl, countEl, foundEl, startBtn, stopBtn) {
+    this.stop(startBtn, stopBtn);
+    this.nbrTc.fill(0); this.cellUsage.fill(0); this.cellTransCount.fill(0);
+    this.travel = 0; this.found = 0;
+    countEl.textContent = `0 / ${totalEl.value}`;
+    foundEl.textContent = '0';
+    this.paint();
+  }
+
+  paint() {
+    const ctx  = this.ctx;
+    const W    = this.canvas.width, H = this.canvas.height;
+    const img  = ctx.createImageData(W, H);
+    const data = img.data;
+    const SAT  = 5;
+    const BLEED= 0.35;
+    // Colour targets
+    const ROAD_LAND  = [0.50, 0.35, 0.12];
+    const ROAD_WATER = [0.10, 0.40, 0.90];
+    const ROAD_TRANS = [1.00, 0.05, 0.00];
+    const base = baseImageData.data;
+
+    for (let i = 0; i < N; i++) {
+      let u = this.cellUsage[i], uT = this.cellTransCount[i];
+      for (let d = 0; d < 8; d++) {
+        const nb = nbrIdx[i * NDIRS + d];
+        if (nb >= 0) { u += this.cellUsage[nb] * BLEED; uT += this.cellTransCount[nb] * BLEED; }
+      }
+      const t  = Math.min(1, u  / SAT);
+      const tT = Math.min(1, uT / SAT);
+      const road = isWater[i] ? ROAD_WATER : ROAD_LAND;
+      const bi   = i * 4;
+      const br = base[bi]/255, bg = base[bi+1]/255, bb = base[bi+2]/255;
+      let r = br*(1-t) + road[0]*t;
+      let g = bg*(1-t) + road[1]*t;
+      let b = bb*(1-t) + road[2]*t;
+      r = r*(1-tT) + ROAD_TRANS[0]*tT;
+      g = g*(1-tT) + ROAD_TRANS[1]*tT;
+      b = b*(1-tT) + ROAD_TRANS[2]*tT;
+      data[bi]   = r*255;
+      data[bi+1] = g*255;
+      data[bi+2] = b*255;
+      data[bi+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+}
+
+// ── MinHeap helpers ────────────────────────────────────────────────────────
+function heapPush(h, val) {
+  h.push(val);
+  let i = h.length - 1;
+  while (i > 0) {
+    const p = (i-1) >> 1;
+    if (h[p][0] <= h[i][0]) break;
+    [h[p], h[i]] = [h[i], h[p]]; i = p;
+  }
+}
+function heapPop(h) {
+  const top = h[0], last = h.pop();
+  if (h.length) {
+    h[0] = last;
+    let i = 0;
+    while (true) {
+      let s = i, l = 2*i+1, r = 2*i+2;
+      if (l < h.length && h[l][0] < h[s][0]) s = l;
+      if (r < h.length && h[r][0] < h[s][0]) s = r;
+      if (s === i) break;
+      [h[i], h[s]] = [h[s], h[i]]; i = s;
+    }
+  }
+  return top;
+}
+
+// ── Slider helper ──────────────────────────────────────────────────────────
+function bindSlider(id, valId, onChange) {
+  const el = document.getElementById(id), vEl = document.getElementById(valId);
+  el.addEventListener('input', () => { vEl.textContent = el.value; if (onChange) onChange(+el.value); });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INITIALISE — load terrain once, then build all engines
+// ══════════════════════════════════════════════════════════════════════════════
+(async () => {
+  const [hImg, cImg] = await Promise.all([
+    readImg('../geo/heightmap.png',       COLS, ROWS),
+    readImg('../geo/heightmap_color.png', COLS, ROWS),
+  ]);
+  baseImageData = cImg;
+
+  elevData = new Float32Array(N);
+  isWater  = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    elevData[i] = (hImg.data[i*4] / 255) * (MAX_E - MIN_E) + MIN_E;
+    const r = cImg.data[i*4], b = cImg.data[i*4+2];
+    if (b > r + 50 && b > 170) isWater[i] = 1;
+  }
+
+  nbrIdx   = new Int32Array(N * NDIRS).fill(-1);
+  nbrDElev = new Float32Array(N * NDIRS);
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const i = row * COLS + col;
+      for (let d = 0; d < NDIRS; d++) {
+        const nr = row + DR16[d], nc = col + DC16[d];
+        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+        const nb = nr * COLS + nc;
+        nbrIdx[i*NDIRS+d]   = nb;
+        nbrDElev[i*NDIRS+d] = elevData[nb] - elevData[i];
+      }
+    }
+  }
+
+  // ── Section 1: distance only ─────────────────────────────────────────────
+  const e1 = new SimEngine('cv1', {uphill:0, downhill:0, waterFactor:1, transition:0, maxSlope:0});
+  e1.buildBaseCosts(); e1.paint();
+  const s1start=document.getElementById('s1-start'), s1stop=document.getElementById('s1-stop');
+  s1start.addEventListener('click', () => e1.start(
+    document.getElementById('s1-total'), document.getElementById('s1-count'),
+    document.getElementById('s1-found'), s1start, s1stop));
+  s1stop.addEventListener('click', () => e1.stop(s1start, s1stop));
+  document.getElementById('s1-reset').addEventListener('click', () => e1.reset(
+    document.getElementById('s1-total'), document.getElementById('s1-count'),
+    document.getElementById('s1-found'), s1start, s1stop));
+
+  // ── Section 2: elevation cost ─────────────────────────────────────────────
+  const e2 = new SimEngine('cv2', {uphill:10, downhill:5, waterFactor:100, transition:1000, maxSlope:40});
+  e2.buildBaseCosts(); e2.paint();
+  const s2start=document.getElementById('s2-start'), s2stop=document.getElementById('s2-stop');
+  function s2rebuild() { e2.buildBaseCosts(); }
+  bindSlider('s2-up','s2-up-v', v => { e2.P.uphill   = v; s2rebuild(); });
+  bindSlider('s2-dn','s2-dn-v', v => { e2.P.downhill  = v; s2rebuild(); });
+  bindSlider('s2-sl','s2-sl-v', v => { e2.P.maxSlope  = v; s2rebuild(); });
+  s2start.addEventListener('click', () => e2.start(
+    document.getElementById('s2-total'), document.getElementById('s2-count'),
+    document.getElementById('s2-found'), s2start, s2stop));
+  s2stop.addEventListener('click', () => e2.stop(s2start, s2stop));
+  document.getElementById('s2-reset').addEventListener('click', () => e2.reset(
+    document.getElementById('s2-total'), document.getElementById('s2-count'),
+    document.getElementById('s2-found'), s2start, s2stop));
+
+  // ── Section 3: modes ──────────────────────────────────────────────────────
+  const MODES = {
+    pedestrian: {uphill:4,  downhill:2, waterFactor:8,   transition:50,  maxSlope:60},
+    mule:       {uphill:8,  downhill:4, waterFactor:20,  transition:80,  maxSlope:30},
+    cart:       {uphill:15, downhill:8, waterFactor:100, transition:200, maxSlope:12},
+    watercraft: {uphill:0,  downhill:0, waterFactor:0.1, transition:100, maxSlope:0 },
+  };
+  const e3 = new SimEngine('cv3', {...MODES.pedestrian});
+  e3.buildBaseCosts(); e3.paint();
+  const s3start=document.getElementById('s3-start'), s3stop=document.getElementById('s3-stop');
+  function s3sync() {
+    document.getElementById('s3-up').value   = e3.P.uphill;    document.getElementById('s3-up-v').textContent   = e3.P.uphill;
+    document.getElementById('s3-dn').value   = e3.P.downhill;  document.getElementById('s3-dn-v').textContent   = e3.P.downhill;
+    document.getElementById('s3-sl').value   = e3.P.maxSlope;  document.getElementById('s3-sl-v').textContent   = e3.P.maxSlope;
+    document.getElementById('s3-wf').value   = e3.P.waterFactor; document.getElementById('s3-wf-v').textContent = e3.P.waterFactor;
+  }
+  document.querySelectorAll('#s3-presets button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#s3-presets button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      Object.assign(e3.P, MODES[btn.dataset.mode]);
+      e3.buildBaseCosts(); s3sync();
+    });
+  });
+  bindSlider('s3-up','s3-up-v', v => { e3.P.uphill      = v; e3.buildBaseCosts(); });
+  bindSlider('s3-dn','s3-dn-v', v => { e3.P.downhill     = v; e3.buildBaseCosts(); });
+  bindSlider('s3-sl','s3-sl-v', v => { e3.P.maxSlope     = v; e3.buildBaseCosts(); });
+  bindSlider('s3-wf','s3-wf-v', v => { e3.P.waterFactor  = v; e3.buildBaseCosts(); });
+  s3start.addEventListener('click', () => e3.start(
+    document.getElementById('s3-total'), document.getElementById('s3-count'),
+    document.getElementById('s3-found'), s3start, s3stop));
+  s3stop.addEventListener('click', () => e3.stop(s3start, s3stop));
+  document.getElementById('s3-reset').addEventListener('click', () => e3.reset(
+    document.getElementById('s3-total'), document.getElementById('s3-count'),
+    document.getElementById('s3-found'), s3start, s3stop));
+
+  // ── Section 4: intermodal ─────────────────────────────────────────────────
+  const e4 = new SimEngine('cv4', {uphill:10, downhill:5, waterFactor:0.3, transition:60, maxSlope:15});
+  e4.buildBaseCosts(); e4.paint();
+  const s4start=document.getElementById('s4-start'), s4stop=document.getElementById('s4-stop');
+  bindSlider('s4-tr','s4-tr-v', v => { e4.P.transition  = v; e4.buildBaseCosts(); });
+  bindSlider('s4-wf','s4-wf-v', v => { e4.P.waterFactor = v; e4.buildBaseCosts(); });
+  bindSlider('s4-up','s4-up-v', v => { e4.P.uphill      = v; e4.buildBaseCosts(); });
+  bindSlider('s4-sl','s4-sl-v', v => { e4.P.maxSlope    = v; e4.buildBaseCosts(); });
+  s4start.addEventListener('click', () => e4.start(
+    document.getElementById('s4-total'), document.getElementById('s4-count'),
+    document.getElementById('s4-found'), s4start, s4stop));
+  s4stop.addEventListener('click', () => e4.stop(s4start, s4stop));
+  document.getElementById('s4-reset').addEventListener('click', () => e4.reset(
+    document.getElementById('s4-total'), document.getElementById('s4-count'),
+    document.getElementById('s4-found'), s4start, s4stop));
+
+  // ── Section 5: path dependency ────────────────────────────────────────────
+  const e5 = new SimEngine('cv5', {uphill:10, downhill:5, waterFactor:50, transition:30, maxSlope:15},
+                            {usePathDep: true});
+  e5.buildBaseCosts(); e5.paint();
+  const s5start=document.getElementById('s5-start'), s5stop=document.getElementById('s5-stop');
+  document.getElementById('s5-dep').addEventListener('change', e => { e5.usePathDep = e.target.checked; });
+  bindSlider('s5-up','s5-up-v', v => { e5.P.uphill     = v; e5.buildBaseCosts(); });
+  bindSlider('s5-dn','s5-dn-v', v => { e5.P.downhill    = v; e5.buildBaseCosts(); });
+  bindSlider('s5-sl','s5-sl-v', v => { e5.P.maxSlope    = v; e5.buildBaseCosts(); });
+  bindSlider('s5-tr','s5-tr-v', v => { e5.P.transition  = v; e5.buildBaseCosts(); });
+  s5start.addEventListener('click', () => e5.start(
+    document.getElementById('s5-total'), document.getElementById('s5-count'),
+    document.getElementById('s5-found'), s5start, s5stop));
+  s5stop.addEventListener('click', () => e5.stop(s5start, s5stop));
+  document.getElementById('s5-reset').addEventListener('click', () => e5.reset(
+    document.getElementById('s5-total'), document.getElementById('s5-count'),
+    document.getElementById('s5-found'), s5start, s5stop));
+
+  // ── Nav active highlight on scroll ────────────────────────────────────────
+  const sections = document.querySelectorAll('.section');
+  const navLinks  = document.querySelectorAll('nav a[href^="#"]');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        navLinks.forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + e.target.id);
+        });
+      }
+    });
+  }, { threshold: 0.4 });
+  sections.forEach(s => obs.observe(s));
+
+})();
+</script>
+</body>
+</html>

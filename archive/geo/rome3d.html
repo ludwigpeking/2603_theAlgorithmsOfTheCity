@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Greater Rome — 3D Terrain</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; overflow: hidden;
+       font-family: 'Segoe UI', system-ui, sans-serif; }
+canvas { display: block; }
+
+#ui {
+  position: fixed; top: 16px; left: 16px;
+  background: rgba(13,17,23,0.85); backdrop-filter: blur(10px);
+  border: 1px solid #30363d; border-radius: 10px;
+  padding: 16px 18px; color: #c9d1d9; font-size: 0.8rem;
+  display: flex; flex-direction: column; gap: 10px; min-width: 250px;
+}
+#ui h2 { font-size: 0.92rem; color: #e6edf3; font-weight: 600; }
+#ui p  { font-size: 0.7rem; color: #8b949e; margin-top: 1px; }
+.section { font-size: 0.72rem; color: #58a6ff; font-weight: 600;
+           border-top: 1px solid #21262d; padding-top: 8px; }
+.ctrl  { display: flex; align-items: center; gap: 8px; }
+.ctrl label { flex: 0 0 82px; color: #8b949e; font-size: 0.73rem; }
+.ctrl input[type=range] { flex: 1; accent-color: #58a6ff; cursor: pointer; }
+.ctrl input[type=checkbox] { accent-color: #58a6ff; cursor: pointer; width:14px; height:14px; }
+.ctrl select { flex: 1; background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 2px 4px; font-size: 0.73rem; cursor: pointer; }
+.val { color: #58a6ff; font-size: 0.73rem; min-width: 34px; text-align: right; }
+#path-info { font-size: 0.69rem; color: #8b949e; padding-top: 2px; }
+
+#legend {
+  position: fixed; top: 16px; right: 16px;
+  background: rgba(13,17,23,0.85); backdrop-filter: blur(10px);
+  border: 1px solid #30363d; border-radius: 10px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem;
+}
+#legend-title { color: #8b949e; margin-bottom: 4px; }
+.leg-row { display: flex; align-items: center; gap: 8px; color: #8b949e; }
+.leg-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+#tooltip {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(13,17,23,0.9); border: 1px solid #30363d; border-radius: 6px;
+  padding: 6px 16px; color: #8b949e; font-size: 0.75rem;
+  pointer-events: none; white-space: nowrap;
+}
+#loading {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: #0d1117; color: #8b949e; font-size: 0.9rem;
+  flex-direction: column; gap: 14px; z-index: 100;
+}
+.spinner { width: 36px; height: 36px; border: 3px solid #30363d;
+           border-top-color: #58a6ff; border-radius: 50%;
+           animation: spin 0.75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><span>Loading terrain…</span></div>
+<canvas id="canvas"></canvas>
+
+<div id="ui" style="display:none">
+  <div>
+    <h2>Greater Rome — 3D Terrain</h2>
+    <p>greaterRome.tif · DTM · EPSG:4326</p>
+  </div>
+
+  <!-- Terrain -->
+  <div class="ctrl">
+    <label>Exaggeration</label>
+    <input type="range" id="exag" min="1" max="20" value="2" step="0.5">
+    <span class="val" id="exag-val">2×</span>
+  </div>
+  <div class="ctrl">
+    <label>Wireframe</label>
+    <input type="checkbox" id="wire">
+  </div>
+  <div class="ctrl">
+    <label>View</label>
+    <select id="view-mode">
+      <option value="colour">Colour</option>
+      <option value="analysis">Analysis</option>
+    </select>
+  </div>
+
+  <!-- Pathfinding -->
+  <div class="section">Pathfinding</div>
+  <div class="ctrl">
+    <label>Mode</label>
+    <select id="p-mode">
+      <option value="distance">Distance-based</option>
+      <option value="pedestrian">Pedestrian</option>
+      <option value="cart" selected>Cart vehicle</option>
+      <option value="custom">Custom</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label>Uphill cost</label>
+    <input type="range" id="p-uphill" min="0" max="10" value="10" step="0.1">
+    <span class="val" id="v-uphill">10.0</span>
+  </div>
+  <div class="ctrl">
+    <label>Downhill cost</label>
+    <input type="range" id="p-downhill" min="0" max="10" value="10" step="0.1">
+    <span class="val" id="v-downhill">10.0</span>
+  </div>
+  <div class="ctrl">
+    <label>Water cost</label>
+    <input type="range" id="p-water" min="0.01" max="100" value="0.1" step="0.01">
+    <span class="val" id="v-water">0.10</span>
+  </div>
+  <div class="ctrl">
+    <label>Shore penalty</label>
+    <input type="range" id="p-trans" min="0" max="30" value="30" step="0.5">
+    <span class="val" id="v-trans">30.0</span>
+  </div>
+  <div class="ctrl">
+    <label>Max slope %</label>
+    <input type="range" id="p-slope" min="0" max="50" value="15" step="1">
+    <span class="val" id="v-slope">15</span>
+  </div>
+  <div class="ctrl">
+    <label>Knight moves</label>
+    <input type="checkbox" id="p-knight" checked>
+  </div>
+  <div id="path-info">Drag <span style="color:#22cc44">A</span> or <span style="color:#ff4422">B</span> to reroute</div>
+</div>
+
+<div id="legend" style="display:none">
+  <div id="legend-title">Elevation</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(155,140,130)"></div>&gt; 1400 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(135,100,50)"></div>850 – 1400 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(160,145,75)"></div>450 – 850 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(110,180,75)"></div>200 – 450 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(180,215,120)"></div>60 – 200 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(230,220,160)"></div>0 – 60 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(70,148,212)"></div>Lakes / rivers</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(30,110,200)"></div>Sea</div>
+</div>
+
+<div id="tooltip">Hover over terrain</div>
+
+<script type="module">
+import * as THREE from 'https://esm.sh/three@0.169';
+import { OrbitControls } from 'https://esm.sh/three@0.169/examples/jsm/controls/OrbitControls.js';
+
+// ── metadata ──────────────────────────────────────────────────────────────────
+const COLS   = 512;
+const ROWS   = 338;
+const MIN_E  = -8.0;
+const MAX_E  = 1792.0;
+const UNIT_M = 187.6;
+const BOUNDS = { west: 12.031250, east: 13.190417,
+                 south: 41.618472, north: 42.188750 };
+
+// ── load PNGs ─────────────────────────────────────────────────────────────────
+function readImagePixels(src, w, h) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = Object.assign(document.createElement('canvas'), { width: w, height: h });
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(cv.getContext('2d').getImageData(0, 0, w, h).data);
+    };
+    img.onerror = () => reject(new Error('Cannot load ' + src));
+    img.src = src;
+  });
+}
+const [hPx, cPx] = await Promise.all([
+  readImagePixels('heightmap.png',       COLS, ROWS),
+  readImagePixels('heightmap_color.png', COLS, ROWS),
+]);
+const elevData = new Float32Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++)
+  elevData[i] = (hPx[i*4] / 255) * (MAX_E - MIN_E) + MIN_E;
+
+// ── water lookup (sea + rivers + lakes: blue-dominant pixels) ─────────────────
+const isWater = new Uint8Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++) {
+  const r = cPx[i*4], b = cPx[i*4+2];
+  if (b > r + 50 && b > 170) isWater[i] = 1;
+}
+
+// ── renderer / scene / camera ─────────────────────────────────────────────────
+const canvas   = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+const colourFog  = new THREE.FogExp2(0x0d1117, 0.0014);
+scene.fog        = colourFog;
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 3000);
+camera.position.set(0, 180, 420);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.target.set(0, 20, 0);
+controls.maxDistance = 1400;
+controls.minDistance = 5;
+controls.update();
+
+// ── lighting ──────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xd4e8ff, 0.5));
+const sun = new THREE.DirectionalLight(0xfff5e0, 1.15);
+sun.position.set(-260, 500, 300);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x90b8d0, 0.2);
+fill.position.set(300, 80, 200);
+scene.add(fill);
+
+// ── pre-build colour buffers ──────────────────────────────────────────────────
+const colColour   = new Float32Array(COLS * ROWS * 3);
+const colAnalysis = new Float32Array(COLS * ROWS * 3);
+for (let i = 0; i < COLS * ROWS; i++) {
+  colColour[i*3]   = cPx[i*4]   / 255;
+  colColour[i*3+1] = cPx[i*4+1] / 255;
+  colColour[i*3+2] = cPx[i*4+2] / 255;
+  if (isWater[i]) {
+    colAnalysis[i*3] = 0.24; colAnalysis[i*3+1] = 0.55; colAnalysis[i*3+2] = 0.86;
+  } else {
+    colAnalysis[i*3] = colAnalysis[i*3+1] = colAnalysis[i*3+2] = 0.84;
+  }
+}
+
+// ── terrain mesh ──────────────────────────────────────────────────────────────
+function buildGeometry(zExag) {
+  const pos = new Float32Array(COLS * ROWS * 3);
+  for (let row = 0; row < ROWS; row++) {
+    for (let c = 0; c < COLS; c++) {
+      const i = row * COLS + c;
+      pos[i*3]   = (c   / (COLS-1) - 0.5) * COLS;
+      pos[i*3+1] = (elevData[i] / UNIT_M) * zExag;
+      pos[i*3+2] = (row / (ROWS-1) - 0.5) * ROWS;
+    }
+  }
+  const col = colColour.slice();
+  const idx = [];
+  for (let r = 0; r < ROWS-1; r++)
+    for (let c = 0; c < COLS-1; c++) {
+      const a=r*COLS+c, b=r*COLS+c+1, d=(r+1)*COLS+c, e=(r+1)*COLS+c+1;
+      idx.push(a,d,b, d,e,b);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+const mat  = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+const mesh = new THREE.Mesh(buildGeometry(2), mat);
+scene.add(mesh);
+
+
+// ── exaggeration update ───────────────────────────────────────────────────────
+let currentExag = 2;
+function applyExag(zExag) {
+  currentExag = zExag;
+  const pos = mesh.geometry.attributes.position.array;
+  for (let i = 0; i < COLS * ROWS; i++) pos[i*3+1] = (elevData[i]/UNIT_M)*zExag;
+  mesh.geometry.attributes.position.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  placeMarkers(zExag);
+  drawPath(currentPath, zExag);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PATHFINDING
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── parameters ────────────────────────────────────────────────────────────────
+const P = { uphill: 10, downhill: 10, waterFactor: 0.1, transition: 30, maxSlope: 15 };
+
+const PRESETS = {
+  distance:   { uphill: 0,   downhill: 0,   waterFactor: 1,    transition: 0,  maxSlope: 0    },
+  pedestrian: { uphill: 5,   downhill: 3,   waterFactor: 100,  transition: 1,  maxSlope: 0    },
+  cart:       { uphill: 10,  downhill: 10,  waterFactor: 0.1,  transition: 30, maxSlope: 15   },
+};
+
+// ── neighbour directions: 8-dir + knight (L-moves) ────────────────────────────
+const DIRS8 = [
+  [-1, 0,1],   [1, 0,1],   [0,-1,1],   [0, 1,1],     // cardinal
+  [-1,-1,1.414],[-1, 1,1.414],[1,-1,1.414],[1, 1,1.414], // diagonal
+];
+const DIRS_KN = [
+  [-2,-1,2.236],[-2, 1,2.236],[2,-1,2.236],[2, 1,2.236],
+  [-1,-2,2.236],[-1, 2,2.236],[1,-2,2.236],[1, 2,2.236],
+];
+let DIRS = [...DIRS8, ...DIRS_KN];
+
+// ── MinHeap ───────────────────────────────────────────────────────────────────
+class MinHeap {
+  constructor() { this.h = []; }
+  push(pri, val) {
+    this.h.push([pri, val]);
+    let i = this.h.length - 1;
+    while (i > 0) {
+      const p = (i-1) >> 1;
+      if (this.h[p][0] <= this.h[i][0]) break;
+      [this.h[p], this.h[i]] = [this.h[i], this.h[p]]; i = p;
+    }
+  }
+  pop() {
+    const top = this.h[0], last = this.h.pop();
+    if (this.h.length) {
+      this.h[0] = last;
+      let i = 0;
+      for (;;) {
+        let s=i, l=2*i+1, r=2*i+2;
+        if (l < this.h.length && this.h[l][0] < this.h[s][0]) s=l;
+        if (r < this.h.length && this.h[r][0] < this.h[s][0]) s=r;
+        if (s === i) break;
+        [this.h[i], this.h[s]] = [this.h[s], this.h[i]]; i = s;
+      }
+    }
+    return top;
+  }
+  get size() { return this.h.length; }
+}
+
+// ── A* ────────────────────────────────────────────────────────────────────────
+function aStar(start, goal) {
+  if (start === goal) return [start];
+  const g    = new Float32Array(COLS * ROWS).fill(Infinity);
+  const came = new Int32Array(COLS * ROWS).fill(-1);
+  const done = new Uint8Array(COLS * ROWS);
+  const gr = Math.floor(goal/COLS), gc = goal%COLS;
+  const h = i => { const dr=Math.floor(i/COLS)-gr, dc=(i%COLS)-gc; return Math.sqrt(dr*dr+dc*dc); };
+
+  g[start] = 0;
+  const open = new MinHeap();
+  open.push(h(start), start);
+
+  while (open.size) {
+    const [, cur] = open.pop();
+    if (cur === goal) {
+      const path = []; let c = goal;
+      while (c !== -1) { path.push(c); c = came[c]; }
+      return path.reverse();
+    }
+    if (done[cur]) continue;
+    done[cur] = 1;
+    const cr = Math.floor(cur/COLS), cc = cur%COLS;
+    const eCur = elevData[cur], wCur = isWater[cur];
+
+    for (const [dr, dc, dist] of DIRS) {
+      const nr = cr+dr, nc = cc+dc;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      const nb = nr*COLS+nc;
+      if (done[nb]) continue;
+      const eNb = elevData[nb], wNb = isWater[nb];
+      const dElev = eNb - eCur;
+
+      // max slope check (0 means disabled)
+      if (P.maxSlope > 0 && Math.abs(dElev) / (dist * UNIT_M) * 100 > P.maxSlope) continue;
+
+      // base traversal cost — water is fast, land is normal
+      let cost = (wCur && wNb) ? dist * P.waterFactor : dist;
+      // slope penalty
+      if (dElev > 0) cost += P.uphill   * dElev / UNIT_M;
+      else           cost += P.downhill * (-dElev) / UNIT_M;
+      // shore crossing penalty
+      if (!!wCur !== !!wNb) cost += P.transition;
+
+      const ng = g[cur] + cost;
+      if (ng < g[nb]) {
+        g[nb] = ng;
+        came[nb] = cur;
+        open.push(ng + h(nb), nb);
+      }
+    }
+  }
+  return null;  // unreachable
+}
+
+// ── grid ↔ world ──────────────────────────────────────────────────────────────
+function gridToWorld(idx, exag, yOff = 1.5) {
+  const row = Math.floor(idx/COLS), col = idx%COLS;
+  return new THREE.Vector3(
+    (col/(COLS-1) - 0.5) * COLS,
+    (elevData[idx]/UNIT_M) * exag + yOff,
+    (row/(ROWS-1) - 0.5) * ROWS
+  );
+}
+function worldToGrid(p) {
+  const col = Math.max(0, Math.min(COLS-1, Math.round((p.x/COLS+0.5)*(COLS-1))));
+  const row = Math.max(0, Math.min(ROWS-1, Math.round((p.z/ROWS+0.5)*(ROWS-1))));
+  return row * COLS + col;
+}
+
+// ── waypoint markers ──────────────────────────────────────────────────────────
+// Pin shape: sphere body + thin cylinder pole
+function makePin(color) {
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(
+    new THREE.SphereGeometry(4, 10, 8),
+    new THREE.MeshLambertMaterial({ color })
+  ));
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.6, 0.6, 12, 6),
+    new THREE.MeshLambertMaterial({ color })
+  );
+  pole.position.y = -8;
+  grp.add(pole);
+  return grp;
+}
+const pinA = makePin(0x22cc44);   // green = start
+const pinB = makePin(0xff4422);   // red   = goal
+scene.add(pinA); scene.add(pinB);
+
+// Initial positions: A = Rome city area, B = coastal plain
+let idxA = 174 * COLS + 198;
+let idxB = 272 * COLS + 110;
+
+function placeMarkers(exag) {
+  pinA.position.copy(gridToWorld(idxA, exag, 10));
+  pinB.position.copy(gridToWorld(idxB, exag, 10));
+}
+
+// ── path line ─────────────────────────────────────────────────────────────────
+const pathGeo = new THREE.BufferGeometry();
+const pathMat = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+const pathLine = new THREE.Line(pathGeo, pathMat);
+scene.add(pathLine);
+let currentPath = null;
+
+function drawPath(path, exag) {
+  if (!path || path.length < 2) {
+    pathGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+    return;
+  }
+  const pts = new Float32Array(path.length * 3);
+  for (let i = 0; i < path.length; i++) {
+    const v = gridToWorld(path[i], exag, 2.0);
+    pts[i*3]=v.x; pts[i*3+1]=v.y; pts[i*3+2]=v.z;
+  }
+  pathGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+}
+
+function updatePath() {
+  currentPath = aStar(idxA, idxB);
+  drawPath(currentPath, currentExag);
+  const info = document.getElementById('path-info');
+  if (currentPath) {
+    // Approximate km: each step ≈ UNIT_M metres
+    const km = (currentPath.length * UNIT_M / 1000).toFixed(0);
+    info.innerHTML = `Path: ${currentPath.length} cells &asymp; ${km} km &nbsp;·&nbsp; `
+      + `<span style="color:#22cc44">A</span> → <span style="color:#ff4422">B</span>`;
+  } else {
+    info.textContent = 'No path found';
+  }
+}
+
+// Initial placement + first route
+placeMarkers(2);
+updatePath();
+
+// ── drag interaction ──────────────────────────────────────────────────────────
+let dragTarget  = null;
+let pathTimer   = null;
+const DRAG_RAY  = new THREE.Raycaster();
+const DRAG_MV   = new THREE.Vector2();
+
+// Collect all draggable mesh children from both pins
+const pinAMeshes = [], pinBMeshes = [];
+pinA.traverse(o => { if (o.isMesh) pinAMeshes.push(o); });
+pinB.traverse(o => { if (o.isMesh) pinBMeshes.push(o); });
+
+canvas.addEventListener('pointerdown', ev => {
+  DRAG_MV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+  DRAG_RAY.setFromCamera(DRAG_MV, camera);
+  if (DRAG_RAY.intersectObjects(pinAMeshes).length) { dragTarget = 'A'; }
+  else if (DRAG_RAY.intersectObjects(pinBMeshes).length) { dragTarget = 'B'; }
+  if (dragTarget) { controls.enabled = false; canvas.style.cursor = 'grabbing'; ev.preventDefault(); }
+});
+
+canvas.addEventListener('pointermove', ev => {
+  if (!dragTarget) return;
+  DRAG_MV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+  DRAG_RAY.setFromCamera(DRAG_MV, camera);
+  const hits = DRAG_RAY.intersectObject(mesh);
+  if (!hits.length) return;
+  const newIdx = worldToGrid(hits[0].point);
+  if (dragTarget === 'A') { idxA = newIdx; pinA.position.copy(gridToWorld(newIdx, currentExag, 10)); }
+  else                    { idxB = newIdx; pinB.position.copy(gridToWorld(newIdx, currentExag, 10)); }
+  clearTimeout(pathTimer);
+  pathTimer = setTimeout(updatePath, 80);   // debounce: repath 80 ms after last move
+});
+
+canvas.addEventListener('pointerup', () => {
+  if (!dragTarget) return;
+  dragTarget = null;
+  controls.enabled = true;
+  canvas.style.cursor = '';
+  clearTimeout(pathTimer);
+  updatePath();
+});
+
+// ── UI wiring ─────────────────────────────────────────────────────────────────
+const exagSlider = document.getElementById('exag');
+exagSlider.addEventListener('input', () => {
+  const v = +exagSlider.value;
+  document.getElementById('exag-val').textContent = v + '×';
+  applyExag(v);
+});
+document.getElementById('wire').addEventListener('change', e => { mat.wireframe = e.target.checked; });
+
+// ── view mode (colour vs analysis) ────────────────────────────────────────────
+function setViewMode(mode) {
+  const src = mode === 'analysis' ? colAnalysis : colColour;
+  mesh.geometry.attributes.color.array.set(src);
+  mesh.geometry.attributes.color.needsUpdate = true;
+  scene.fog = mode === 'analysis' ? null : colourFog;
+  if (mode === 'analysis') {
+    pinA.traverse(o => { if (o.isMesh) o.material.color.set(0xff0000); });
+    pinB.traverse(o => { if (o.isMesh) o.material.color.set(0xff0000); });
+  } else {
+    pinA.traverse(o => { if (o.isMesh) o.material.color.set(0x22cc44); });
+    pinB.traverse(o => { if (o.isMesh) o.material.color.set(0xff4422); });
+  }
+}
+document.getElementById('view-mode').addEventListener('change', e => setViewMode(e.target.value));
+
+function bindParam(id, key, valId, dec) {
+  const el = document.getElementById(id), vEl = document.getElementById(valId);
+  el.addEventListener('input', () => {
+    P[key] = +el.value;
+    vEl.textContent = (+el.value).toFixed(dec);
+    clearTimeout(pathTimer);
+    pathTimer = setTimeout(updatePath, 120);
+  });
+}
+bindParam('p-uphill',   'uphill',      'v-uphill',   1);
+bindParam('p-downhill', 'downhill',    'v-downhill', 1);
+bindParam('p-water',    'waterFactor', 'v-water',    2);
+bindParam('p-trans',    'transition',  'v-trans',    1);
+bindParam('p-slope',    'maxSlope',    'v-slope',    0);
+
+// mark as custom when any slider is manually changed
+['p-uphill','p-downhill','p-water','p-trans','p-slope'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    document.getElementById('p-mode').value = 'custom';
+  });
+});
+
+function applyPreset(name) {
+  const pr = PRESETS[name];
+  if (!pr) return;
+  Object.assign(P, pr);
+  const set = (id, key, valId, dec) => {
+    const el = document.getElementById(id);
+    el.value = P[key];
+    document.getElementById(valId).textContent = P[key].toFixed(dec);
+  };
+  set('p-uphill',   'uphill',      'v-uphill',   1);
+  set('p-downhill', 'downhill',    'v-downhill', 1);
+  set('p-water',    'waterFactor', 'v-water',    2);
+  set('p-trans',    'transition',  'v-trans',    1);
+  set('p-slope',    'maxSlope',    'v-slope',    0);
+  updatePath();
+}
+
+document.getElementById('p-mode').addEventListener('change', e => {
+  if (e.target.value !== 'custom') applyPreset(e.target.value);
+});
+
+document.getElementById('p-knight').addEventListener('change', e => {
+  DIRS = e.target.checked ? [...DIRS8, ...DIRS_KN] : [...DIRS8];
+  updatePath();
+});
+
+// ── hover tooltip ─────────────────────────────────────────────────────────────
+const hoverRay = new THREE.Raycaster();
+const hoverMV  = new THREE.Vector2();
+const tooltip  = document.getElementById('tooltip');
+
+window.addEventListener('mousemove', ev => {
+  if (dragTarget) return;
+  hoverMV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+  hoverRay.setFromCamera(hoverMV, camera);
+  const hits = hoverRay.intersectObject(mesh);
+  if (!hits.length) { tooltip.textContent = 'Hover over terrain'; return; }
+  const p = hits[0].point;
+  const col = Math.max(0,Math.min(COLS-1, Math.round((p.x/COLS+0.5)*(COLS-1))));
+  const row = Math.max(0,Math.min(ROWS-1, Math.round((p.z/ROWS+0.5)*(ROWS-1))));
+  const lon = BOUNDS.west  + (col/(COLS-1)) * (BOUNDS.east  - BOUNDS.west);
+  const lat = BOUNDS.north - (row/(ROWS-1)) * (BOUNDS.north - BOUNDS.south);
+  const e   = elevData[row*COLS+col];
+  tooltip.textContent = `${lat.toFixed(4)}°N  ${lon.toFixed(4)}°E  ·  ${Math.round(e)} m`;
+});
+
+// ── resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ── show UI ───────────────────────────────────────────────────────────────────
+document.getElementById('loading').style.display = 'none';
+document.getElementById('ui').style.display     = 'flex';
+document.getElementById('legend').style.display = 'flex';
+
+// ── render loop ───────────────────────────────────────────────────────────────
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

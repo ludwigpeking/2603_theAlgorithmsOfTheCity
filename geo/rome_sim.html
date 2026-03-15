@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rome — Path Dependency Simulation</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; overflow: hidden;
+       font-family: 'Segoe UI', system-ui, sans-serif; }
+canvas { display: block; }
+#ui {
+  position: fixed; top: 16px; left: 16px;
+  background: rgba(13,17,23,0.88); backdrop-filter: blur(10px);
+  border: 1px solid #30363d; border-radius: 10px;
+  padding: 16px 18px; color: #c9d1d9; font-size: 0.8rem;
+  display: flex; flex-direction: column; gap: 10px; min-width: 260px;
+  max-height: calc(100vh - 32px); overflow-y: auto;
+}
+#ui h2 { font-size: 0.92rem; color: #e6edf3; font-weight: 600; }
+#ui p  { font-size: 0.7rem; color: #8b949e; margin-top: 1px; }
+.section { font-size: 0.72rem; color: #58a6ff; font-weight: 600;
+           border-top: 1px solid #21262d; padding-top: 8px; }
+.ctrl { display: flex; align-items: center; gap: 8px; }
+.ctrl label { flex: 0 0 90px; color: #8b949e; font-size: 0.73rem; }
+.ctrl input[type=range]    { flex: 1; accent-color: #58a6ff; cursor: pointer; }
+.ctrl input[type=checkbox] { accent-color: #58a6ff; cursor: pointer; width:14px; height:14px; }
+.ctrl select { flex: 1; background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+               border-radius: 4px; padding: 2px 4px; font-size: 0.73rem; cursor: pointer; }
+.val  { color: #58a6ff; font-size: 0.73rem; min-width: 34px; text-align: right; }
+.stat { font-size: 0.69rem; color: #8b949e; line-height: 1.7; }
+.stat b { color: #c9d1d9; font-weight: 500; }
+#path-info { font-size: 0.69rem; color: #8b949e; padding-top: 2px; }
+.sim-btns { display: flex; gap: 6px; }
+.sim-btns button {
+  flex: 1; padding: 4px 0; border: 1px solid #30363d; border-radius: 5px;
+  background: #21262d; color: #c9d1d9; font-size: 0.72rem; cursor: pointer;
+}
+.sim-btns button:hover:not(:disabled) { background: #30363d; }
+.sim-btns button:disabled { opacity: 0.35; cursor: default; }
+#legend {
+  position: fixed; top: 16px; right: 16px;
+  background: rgba(13,17,23,0.88); backdrop-filter: blur(10px);
+  border: 1px solid #30363d; border-radius: 10px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem;
+}
+#legend-title { color: #8b949e; margin-bottom: 4px; }
+.leg-row { display: flex; align-items: center; gap: 8px; color: #8b949e; }
+.leg-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+#tooltip {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(13,17,23,0.9); border: 1px solid #30363d; border-radius: 6px;
+  padding: 6px 16px; color: #8b949e; font-size: 0.75rem;
+  pointer-events: none; white-space: nowrap;
+}
+#loading {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: #0d1117; color: #8b949e; font-size: 0.9rem;
+  flex-direction: column; gap: 14px; z-index: 100;
+}
+.spinner { width: 36px; height: 36px; border: 3px solid #30363d;
+           border-top-color: #58a6ff; border-radius: 50%;
+           animation: spin 0.75s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><span>Loading terrain…</span></div>
+<canvas id="canvas"></canvas>
+
+<div id="ui" style="display:none">
+  <div>
+    <h2>Rome — Path Dependency Simulation</h2>
+    <p>greaterRome.tif · DTM · 512 × 338</p>
+  </div>
+
+  <!-- View -->
+  <div class="section">View</div>
+  <div class="ctrl">
+    <label>Exaggeration</label>
+    <input type="range" id="exag" min="1" max="20" value="2" step="0.5">
+    <span class="val" id="exag-val">2×</span>
+  </div>
+  <div class="ctrl">
+    <label>Wireframe</label>
+    <input type="checkbox" id="wire">
+  </div>
+  <div class="ctrl">
+    <label>View</label>
+    <select id="view-mode">
+      <option value="colour">Colour</option>
+      <option value="analysis">Analysis</option>
+    </select>
+  </div>
+
+  <!-- Movement parameters -->
+  <div class="section">Movement parameters</div>
+  <div class="ctrl">
+    <label>Preset</label>
+    <select id="p-mode">
+      <option value="distance">Distance-based</option>
+      <option value="pedestrian">Pedestrian</option>
+      <option value="cart" selected>Cart vehicle</option>
+      <option value="custom">Custom</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label>Uphill cost</label>
+    <input type="range" id="p-uphill" min="0" max="100" value="100" step="1">
+    <span class="val" id="v-uphill">100</span>
+  </div>
+  <div class="ctrl">
+    <label>Downhill cost</label>
+    <input type="range" id="p-downhill" min="0" max="100" value="100" step="1">
+    <span class="val" id="v-downhill">100</span>
+  </div>
+  <div class="ctrl">
+    <label>Water cost</label>
+    <input type="range" id="p-water" min="0.01" max="100" value="0.1" step="0.01">
+    <span class="val" id="v-water">0.10</span>
+  </div>
+  <div class="ctrl">
+    <label>Shore penalty</label>
+    <input type="range" id="p-trans" min="0" max="30" value="30" step="0.5">
+    <span class="val" id="v-trans">30.0</span>
+  </div>
+  <div class="ctrl">
+    <label>Max slope %</label>
+    <input type="range" id="p-slope" min="0" max="50" value="15" step="1">
+    <span class="val" id="v-slope">15</span>
+  </div>
+  <div class="ctrl">
+    <label>Knight moves</label>
+    <input type="checkbox" id="p-knight" checked>
+  </div>
+
+  <!-- Pathfinding test -->
+  <div class="section">Manual route</div>
+  <div class="ctrl">
+    <label>Show pins</label>
+    <input type="checkbox" id="show-manual" checked>
+  </div>
+  <div class="ctrl">
+    <label>Path dep.</label>
+    <input type="checkbox" id="use-dep">
+  </div>
+  <div id="path-info">Drag <span style="color:#22cc44">A</span> or
+    <span style="color:#ff4422">B</span> to reroute</div>
+
+  <!-- Simulation -->
+  <div class="section">Simulation</div>
+  <div class="ctrl">
+    <label>Path dep.</label>
+    <input type="checkbox" id="sim-dep" checked>
+  </div>
+  <div class="sim-btns">
+    <button id="sim-start">▶ Start</button>
+    <button id="sim-stop"  disabled>■ Stop</button>
+    <button id="sim-reset">↺ Reset</button>
+  </div>
+  <div class="ctrl">
+    <label>Travels</label>
+    <input type="number" id="sim-total" value="100" min="1" max="10000" step="50"
+           style="width:70px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:2px 5px;font-size:0.73rem;">
+    <span id="sim-count" style="color:#58a6ff;font-size:0.73rem;min-width:40px;text-align:right">0 / 100</span>
+  </div>
+  <div class="stat">Paths found &nbsp;<b id="sim-found">0</b></div>
+
+  <!-- Terrain stats -->
+  <div class="section">Terrain data</div>
+  <div class="stat">Farmable cells &nbsp;<span style="color:#e8d87a">■</span>&nbsp;<b id="s-farm">–</b></div>
+  <div class="stat">Passable edges &nbsp;<b id="s-pass">–</b></div>
+  <div class="stat">Impassable edges &nbsp;<b id="s-imp">–</b></div>
+</div>
+
+<div id="legend" style="display:none">
+  <div id="legend-title">Legend</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:#e8d87a"></div>Farmable (0.1 – 10% slope)</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(155,140,130)"></div>&gt; 1400 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(110,180,75)"></div>60 – 450 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(230,220,160)"></div>0 – 60 m</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(70,148,212)"></div>Rivers / lakes</div>
+  <div class="leg-row"><div class="leg-swatch" style="background:rgb(30,110,200)"></div>Sea</div>
+</div>
+
+<div id="tooltip">Hover over terrain</div>
+
+<script type="module">
+import * as THREE from 'https://esm.sh/three@0.169';
+import { OrbitControls } from 'https://esm.sh/three@0.169/examples/jsm/controls/OrbitControls.js';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// METADATA
+// ══════════════════════════════════════════════════════════════════════════════
+const COLS   = 512;
+const ROWS   = 338;
+const MIN_E  = -8.0;
+const MAX_E  = 1792.0;
+const UNIT_M = 187.6;   // metres per grid cell
+const BOUNDS = { west: 12.031250, east: 13.190417,
+                 south: 41.618472, north: 42.188750 };
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOAD RASTER DATA
+// ══════════════════════════════════════════════════════════════════════════════
+function readImagePixels(src, w, h) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = Object.assign(document.createElement('canvas'), { width: w, height: h });
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(cv.getContext('2d').getImageData(0, 0, w, h).data);
+    };
+    img.onerror = () => reject(new Error('Cannot load ' + src));
+    img.src = src;
+  });
+}
+const [hPx, cPx] = await Promise.all([
+  readImagePixels('heightmap.png',       COLS, ROWS),
+  readImagePixels('heightmap_color.png', COLS, ROWS),
+]);
+
+const elevData = new Float32Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++)
+  elevData[i] = (hPx[i * 4] / 255) * (MAX_E - MIN_E) + MIN_E;
+
+const isWater = new Uint8Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++) {
+  const r = cPx[i*4], b = cPx[i*4+2];
+  if (b > r + 50 && b > 170) isWater[i] = 1;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VERTEX DATA STRUCTURE — 16 NEIGHBOURS PER CELL
+// ══════════════════════════════════════════════════════════════════════════════
+//
+//  Directions d = 0 … 15
+//  ┌──────────────────────────────────────────────────────────────────────────┐
+//  │  d   dr  dc   grid-dist   type                                          │
+//  │  0   -1   0   1.000       N  (cardinal)                                 │
+//  │  1   +1   0   1.000       S                                             │
+//  │  2    0  -1   1.000       W                                             │
+//  │  3    0  +1   1.000       E                                             │
+//  │  4   -1  -1   1.414       NW (diagonal)                                 │
+//  │  5   -1  +1   1.414       NE                                            │
+//  │  6   +1  -1   1.414       SW                                            │
+//  │  7   +1  +1   1.414       SE                                            │
+//  │  8   -2  -1   2.236       knight NW                                     │
+//  │  9   -2  +1   2.236       knight NE                                     │
+//  │ 10   +2  -1   2.236       knight SW                                     │
+//  │ 11   +2  +1   2.236       knight SE                                     │
+//  │ 12   -1  -2   2.236       knight WN                                     │
+//  │ 13   -1  +2   2.236       knight EN                                     │
+//  │ 14   +1  -2   2.236       knight WS                                     │
+//  │ 15   +1  +2   2.236       knight ES                                     │
+//  └──────────────────────────────────────────────────────────────────────────┘
+//
+//  Flat index:  i * 16 + d   where  i = row * COLS + col
+//
+//  PERMANENT geometry arrays  (built once, never change):
+//    nbrIdx  [i*16+d]  Int32    — neighbour cell index  (-1 = out of bounds)
+//    nbrDElev[i*16+d]  Float32  — signed elev change to neighbour (metres)
+//                                 stored once; cost formula re-uses this.
+//
+//  DERIVED cost array  (rebuilt by buildBaseCosts() when P changes):
+//    nbrBase [i*16+d]  Float32  — base movement cost (grid-unit scale)
+//                                 Infinity = impassable (slope > P.maxSlope)
+//
+//  SIMULATION state  (accumulates during simulation, reset by resetSim()):
+//    nbrTc   [i*16+d]  Uint32   — travel count on this directed edge
+//
+//  Base cost formula  (grid-unit based, matching rome3d.html):
+//    dist   = DD16[d]
+//    dElev  = nbrDElev[i*16+d]     (metres)
+//    slope  = |dElev| / (dist × UNIT_M)
+//    if slope > P.maxSlope/100  →  Infinity
+//    wCur = isWater[i],  wNb = isWater[nb]
+//    base = (wCur && wNb) ? dist × P.waterFactor : dist
+//    base += P.uphill   × max(0,  dElev) / UNIT_M
+//    base += P.downhill × max(0, −dElev) / UNIT_M
+//    if (wCur XOR wNb)  base += P.transition      ← shore crossing
+//
+//  Path-dependent cost at simulation time:
+//    tc = nbrTc[i*16+d]
+//    currentCost = nbrBase × (0.5 + 0.5^(tc+1))
+//      tc=0 → ×1.00  (untravelled, full cost)
+//      tc=1 → ×0.75
+//      tc=2 → ×0.625
+//      tc→∞ → ×0.50  (asymptote: cost halves at most)
+//
+const NDIRS = 16;
+const DR16 = new Int8Array([ -1, 1,  0, 0,  -1,-1, 1, 1,
+                              -2,-2,  2, 2,  -1,-1, 1, 1 ]);
+const DC16 = new Int8Array([  0, 0, -1, 1,  -1, 1,-1, 1,
+                              -1, 1, -1, 1,  -2, 2,-2, 2 ]);
+const SQ2 = Math.SQRT2, SQ5 = Math.sqrt(5);
+const DD16 = new Float32Array([ 1, 1, 1, 1,  SQ2,SQ2,SQ2,SQ2,
+                                 SQ5,SQ5,SQ5,SQ5,  SQ5,SQ5,SQ5,SQ5 ]);
+
+const N = COLS * ROWS;
+const nbrIdx   = new Int32Array(N * NDIRS).fill(-1);
+const nbrDElev = new Float32Array(N * NDIRS);
+const nbrBase  = new Float32Array(N * NDIRS).fill(Infinity);
+const nbrTc    = new Uint32Array(N * NDIRS);
+
+// Declared here so buildBaseCosts() can call rebuildLandPool() safely
+let landPool = [];
+
+// ── Build permanent geometry ──────────────────────────────────────────────────
+for (let row = 0; row < ROWS; row++) {
+  for (let col = 0; col < COLS; col++) {
+    const i = row * COLS + col;
+    for (let d = 0; d < NDIRS; d++) {
+      const nr = row + DR16[d], nc = col + DC16[d];
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      const nb = nr * COLS + nc;
+      nbrIdx  [i * NDIRS + d] = nb;
+      nbrDElev[i * NDIRS + d] = elevData[nb] - elevData[i];
+    }
+  }
+}
+
+// ── Movement parameters ───────────────────────────────────────────────────────
+const P = { uphill: 100, downhill: 100, waterFactor: 0.1, transition: 30, maxSlope: 15 };
+
+const PRESETS = {
+  distance:   { uphill: 0,   downhill: 0,   waterFactor: 1,   transition: 0,  maxSlope: 0  },
+  pedestrian: { uphill: 50,  downhill: 30,  waterFactor: 100, transition: 1,  maxSlope: 0  },
+  cart:       { uphill: 100, downhill: 100, waterFactor: 0.1, transition: 30, maxSlope: 15 },
+};
+
+// ── Rebuild nbrBase from current P (called on load + on every param change) ──
+let passableCount = 0, impassableCount = 0;
+function buildBaseCosts() {
+  passableCount = 0; impassableCount = 0;
+  const slopeLimit = P.maxSlope > 0 ? P.maxSlope / 100 : Infinity;
+
+  for (let i = 0; i < N; i++) {
+    const wCur = isWater[i];
+    for (let d = 0; d < NDIRS; d++) {
+      const nb = nbrIdx[i * NDIRS + d];
+      if (nb < 0) { nbrBase[i * NDIRS + d] = Infinity; continue; }
+
+      const dist  = DD16[d];
+      const dElev = nbrDElev[i * NDIRS + d];
+      const slope = Math.abs(dElev) / (dist * UNIT_M);
+      const wNb   = isWater[nb];
+
+      if (slope > slopeLimit) {
+        nbrBase[i * NDIRS + d] = Infinity;
+        impassableCount++;
+        continue;
+      }
+
+      let cost = (wCur && wNb) ? dist * P.waterFactor : dist;
+      if (dElev > 0) cost += P.uphill   *  dElev  / UNIT_M * dist;
+      else           cost += P.downhill * (-dElev) / UNIT_M * dist;
+      if (!!wCur !== !!wNb) cost += P.transition;
+
+      nbrBase[i * NDIRS + d] = cost;
+      passableCount++;
+    }
+  }
+  updateStats();
+  if (typeof rebuildLandPool === 'function') rebuildLandPool();
+}
+let isFarmable;   // declared here so rebuildLandPool guard works; assigned after buildBaseCosts
+buildBaseCosts();
+
+// ── Current (path-dependent) cost for a directed edge ────────────────────────
+// Movement cost asymptotes to 50% of nbrBase with use (established road/path).
+// Transition penalty (land↔water) is tracked separately and decays to 0 with
+// repeated crossings (established ford / dock / bridge).
+function edgeCost(i, d) {
+  const base = nbrBase[i * NDIRS + d];
+  if (!isFinite(base)) return Infinity;
+  const tc   = nbrTc[i * NDIRS + d];
+  const moveFactor = 0.5 + Math.pow(0.5, tc + 1);
+  const nb = nbrIdx[i * NDIRS + d];
+  if (nb >= 0 && (!!isWater[i] !== !!isWater[nb])) {
+    // Transition edge: movement portion decays to 50%; crossing penalty decays to 0
+    const transCost = P.transition * Math.pow(0.5, tc);
+    return (base - P.transition) * moveFactor + transCost;
+  }
+  return base * moveFactor;
+}
+
+// Record a completed path: increment travel counts both directions
+function recordPath(path) {
+  for (let k = 0; k < path.length - 1; k++) {
+    const cur = path[k], nb = path[k + 1];
+    for (let d = 0; d < NDIRS; d++) {
+      if (nbrIdx[cur * NDIRS + d] === nb) { nbrTc[cur * NDIRS + d]++; break; }
+    }
+    for (let d = 0; d < NDIRS; d++) {
+      if (nbrIdx[nb  * NDIRS + d] === cur) { nbrTc[nb  * NDIRS + d]++; break; }
+    }
+    // Track cells where path crosses land/water boundary
+    if (!!isWater[cur] !== !!isWater[nb]) {
+      cellTransCount[cur]++;
+      cellTransCount[nb]++;
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SIMULATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Per-cell cumulative traffic (sum of paths through each cell) ──────────────
+const cellUsage     = new Uint32Array(N);
+// How many times a land/water crossing occurred at each cell (for red bleed)
+const cellTransCount = new Uint32Array(N);
+
+// ── All passable land cells — pool for random origin/destination picks ────────
+// Rebuilt by rebuildLandPool() after buildBaseCosts(), since passability changes.
+// (landPool declared earlier so buildBaseCosts() can call this safely)
+function rebuildLandPool() {
+  if (typeof isFarmable === 'undefined') return;  // called before isFarmable computed
+  landPool = [];
+  for (let i = 0; i < N; i++) {
+    if (!isFarmable[i]) continue;           // only farmable tiles as origin/dest
+    for (let d = 0; d < 8; d++) {           // need at least one passable edge
+      if (isFinite(nbrBase[i * NDIRS + d])) { landPool.push(i); break; }
+    }
+  }
+}
+
+function randomLandCell() {
+  return landPool[Math.floor(Math.random() * landPool.length)];
+}
+
+// ── Traffic colour overlay ────────────────────────────────────────────────────
+// Traffic road colours by tile type:
+//   land       → warm ochre
+//   water      → blue  (path on water / river crossing)
+//   transition → red   (land↔water boundary)
+const ROAD_LAND  = [0.50, 0.35, 0.12];
+const ROAD_WATER = [0.10, 0.40, 0.90];
+const ROAD_TRANS = [1.00, 0.05, 0.00];
+const USAGE_SAT = 5;    // cellUsage at which road colour is fully saturated
+
+// Repaints the entire vertex-colour buffer from base + accumulated cellUsage.
+// Traffic bleeds into immediate neighbours at 40% weight for visual spread.
+// Road colour per cell:
+//   water cell                          → blue
+//   land cell with a used edge crossing → red  (path actually transitions here)
+//   land cell, purely on land           → ochre
+// Called after each sim step and after view-mode change.
+const NBR_BLEED = 0.4;
+function applyTrafficToMesh() {
+  const viewMode = document.getElementById('view-mode').value;
+  const base = viewMode === 'analysis' ? colAnalysis : colColour;
+  const col  = mesh.geometry.attributes.color.array;
+  for (let i = 0; i < N; i++) {
+    // Spread: own usage + bleed from 8 immediate neighbours
+    let u = cellUsage[i];
+    let uTrans = cellTransCount[i];
+    for (let d = 0; d < 8; d++) {
+      const nb = nbrIdx[i * NDIRS + d];
+      if (nb >= 0) {
+        u      += cellUsage[nb]      * NBR_BLEED;
+        uTrans += cellTransCount[nb] * NBR_BLEED;
+      }
+    }
+    const t      = Math.min(1, u      / USAGE_SAT);
+    const tTrans = Math.min(1, uTrans / USAGE_SAT);
+    // Base road colour by cell type
+    const road = isWater[i] ? ROAD_WATER : ROAD_LAND;
+    // Blend: base → road colour → red at crossing hotspots
+    const r0 = base[i*3]   * (1 - t) + road[0] * t;
+    const g0 = base[i*3+1] * (1 - t) + road[1] * t;
+    const b0 = base[i*3+2] * (1 - t) + road[2] * t;
+    col[i*3]   = r0 * (1 - tTrans) + ROAD_TRANS[0] * tTrans;
+    col[i*3+1] = g0 * (1 - tTrans) + ROAD_TRANS[1] * tTrans;
+    col[i*3+2] = b0 * (1 - tTrans) + ROAD_TRANS[2] * tTrans;
+  }
+  mesh.geometry.attributes.color.needsUpdate = true;
+}
+
+// ── Simulation state ──────────────────────────────────────────────────────────
+function SIM_TOTAL() { return Math.max(1, +document.getElementById('sim-total').value || 100); }
+let simTravel  = 0;
+let simFound   = 0;
+let simTimer   = null;
+let simRunning = false;
+
+function updateSimUI() {
+  document.getElementById('sim-count').textContent = `${simTravel} / ${SIM_TOTAL()}`;
+  document.getElementById('sim-found').textContent  = simFound;
+}
+
+// One simulation tick: find and record 2 paths, then schedule next tick.
+function simTick() {
+  const knight = document.getElementById('p-knight').checked;
+  const simDep = document.getElementById('sim-dep').checked;
+  let lastPath = null;
+  const total = SIM_TOTAL();
+  for (let r = 0; r < 2 && simTravel < total; r++) {
+    const start = randomLandCell();
+    const goal  = randomLandCell();
+    if (start === goal) { r--; continue; }   // retry same slot
+
+    const path = aStar(start, goal, simDep, knight);
+    simTravel++;
+    if (path && path.length > 1) {
+      for (const cell of path) cellUsage[cell]++;
+      recordPath(path);
+      simFound++;
+      lastPath = path;
+    }
+  }
+  // Show latest route + move pins to its endpoints during simulation
+  if (lastPath) {
+    idxA = lastPath[0];
+    idxB = lastPath[lastPath.length - 1];
+    pinA.position.copy(gridToWorld(idxA, currentExag, 10));
+    pinB.position.copy(gridToWorld(idxB, currentExag, 10));
+    pinA.visible = true; pinB.visible = true;
+    drawPath(lastPath, currentExag);
+  }
+  applyTrafficToMesh();
+  updateSimUI();
+
+  if (simTravel < total) {
+    simTimer = setTimeout(simTick, 1000);   // next tick in 1 s
+  } else {
+    stopSim();
+  }
+}
+
+function startSim() {
+  if (simRunning) return;
+  simRunning = true;
+  document.getElementById('sim-start').disabled = true;
+  document.getElementById('sim-stop').disabled  = false;
+  simTick();
+}
+
+function stopSim() {
+  simRunning = false;
+  clearTimeout(simTimer);
+  document.getElementById('sim-start').disabled = false;
+  document.getElementById('sim-stop').disabled  = true;
+  // Hide pins and route when sim finishes, unless manual mode is active
+  if (!document.getElementById('show-manual').checked) {
+    setPinsVisible(false);
+  }
+}
+
+function resetSim() {
+  stopSim();
+  nbrTc.fill(0);
+  cellUsage.fill(0);
+  cellTransCount.fill(0);
+  simTravel = 0; simFound = 0;
+  applyTrafficToMesh();
+  updateSimUI();
+  drawPath(null, currentExag);
+}
+
+// ── Farmable land ─────────────────────────────────────────────────────────────
+// Uses only the 8 immediate neighbours (d=0..7) for slope, not knight cells,
+// because slope is a local surface property at the cell itself.
+isFarmable = new Uint8Array(N);
+let farmableCount = 0;
+for (let i = 0; i < N; i++) {
+  if (isWater[i]) continue;
+  let maxSlope = 0;
+  for (let d = 0; d < 8; d++) {     // d < 8: immediate neighbours only
+    const nb = nbrIdx[i * NDIRS + d];
+    if (nb < 0) continue;
+    const slope = Math.abs(nbrDElev[i * NDIRS + d]) / (DD16[d] * UNIT_M);
+    if (slope > maxSlope) maxSlope = slope;
+  }
+  if (maxSlope >= 0.001 && maxSlope <= 0.10) { isFarmable[i] = 1; farmableCount++; }
+}
+rebuildLandPool();   // initial build — after isFarmable is fully computed
+
+// ══════════════════════════════════════════════════════════════════════════════
+// COLOUR BUFFERS
+// ══════════════════════════════════════════════════════════════════════════════
+const colColour   = new Float32Array(N * 3);
+const colAnalysis = new Float32Array(N * 3);
+
+for (let i = 0; i < N; i++) {
+  let r = cPx[i*4] / 255, g = cPx[i*4+1] / 255, b = cPx[i*4+2] / 255;
+  if (isFarmable[i]) {            // blend 35% warm yellow over PNG colour
+    r = r * 0.65 + 0.91 * 0.35;
+    g = g * 0.65 + 0.86 * 0.35;
+    b = b * 0.65 + 0.28 * 0.35;
+  }
+  colColour[i*3] = r; colColour[i*3+1] = g; colColour[i*3+2] = b;
+
+  if (isWater[i]) {
+    colAnalysis[i*3]=0.24; colAnalysis[i*3+1]=0.55; colAnalysis[i*3+2]=0.86;
+  } else if (isFarmable[i]) {
+    colAnalysis[i*3]=0.91; colAnalysis[i*3+1]=0.86; colAnalysis[i*3+2]=0.28;
+  } else {
+    colAnalysis[i*3]=colAnalysis[i*3+1]=colAnalysis[i*3+2]=0.80;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// THREE.JS SETUP
+// ══════════════════════════════════════════════════════════════════════════════
+const canvas   = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+const colourFog = new THREE.FogExp2(0x0d1117, 0.0014);
+scene.fog       = colourFog;
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 3000);
+camera.position.set(0, 180, 420);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.07;
+controls.target.set(0, 20, 0); controls.maxDistance = 1400; controls.minDistance = 5;
+controls.update();
+
+scene.add(new THREE.AmbientLight(0xd4e8ff, 0.5));
+const sun = new THREE.DirectionalLight(0xfff5e0, 1.15);
+sun.position.set(-260, 500, 300); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x90b8d0, 0.2);
+fill.position.set(300, 80, 200); scene.add(fill);
+
+// ── Terrain mesh ──────────────────────────────────────────────────────────────
+function buildGeometry(zExag) {
+  const pos = new Float32Array(N * 3);
+  for (let row = 0; row < ROWS; row++)
+    for (let col = 0; col < COLS; col++) {
+      const i = row * COLS + col;
+      pos[i*3]   = (col / (COLS-1) - 0.5) * COLS;
+      pos[i*3+1] = (elevData[i] / UNIT_M) * zExag;
+      pos[i*3+2] = (row / (ROWS-1) - 0.5) * ROWS;
+    }
+  const idx = [];
+  for (let r = 0; r < ROWS-1; r++)
+    for (let c = 0; c < COLS-1; c++) {
+      const a=r*COLS+c, b=r*COLS+c+1, d=(r+1)*COLS+c, e=(r+1)*COLS+c+1;
+      idx.push(a,d,b, d,e,b);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(colColour.slice(), 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+const mat  = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+const mesh = new THREE.Mesh(buildGeometry(2), mat);
+scene.add(mesh);
+
+let currentExag = 2;
+function applyExag(zExag) {
+  currentExag = zExag;
+  const pos = mesh.geometry.attributes.position.array;
+  for (let i = 0; i < N; i++) pos[i*3+1] = (elevData[i] / UNIT_M) * zExag;
+  mesh.geometry.attributes.position.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  placeMarkers(zExag);
+  drawPath(currentPath, zExag);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PATHFINDING
+// ══════════════════════════════════════════════════════════════════════════════
+class MinHeap {
+  constructor() { this.h = []; }
+  push(pri, val) {
+    this.h.push([pri, val]);
+    let i = this.h.length - 1;
+    while (i > 0) {
+      const p = (i-1) >> 1;
+      if (this.h[p][0] <= this.h[i][0]) break;
+      [this.h[p], this.h[i]] = [this.h[i], this.h[p]]; i = p;
+    }
+  }
+  pop() {
+    const top = this.h[0], last = this.h.pop();
+    if (this.h.length) {
+      this.h[0] = last; let i = 0;
+      for (;;) {
+        let s=i, l=2*i+1, r=2*i+2;
+        if (l < this.h.length && this.h[l][0] < this.h[s][0]) s=l;
+        if (r < this.h.length && this.h[r][0] < this.h[s][0]) s=r;
+        if (s === i) break;
+        [this.h[i], this.h[s]] = [this.h[s], this.h[i]]; i = s;
+      }
+    }
+    return top;
+  }
+  get size() { return this.h.length; }
+}
+
+// usePathDep=true  → edgeCost() uses nbrTc to reduce cost on used edges
+// usePathDep=false → uses nbrBase directly (no path dependency)
+// useKnight        → whether d=8..15 (knight moves) are considered
+function aStar(start, goal, usePathDep = false, useKnight = true) {
+  if (start === goal) return [start];
+  const dirLimit = useKnight ? NDIRS : 8;
+  const g    = new Float32Array(N).fill(Infinity);
+  const came = new Int32Array(N).fill(-1);
+  const done = new Uint8Array(N);
+  const gr = Math.floor(goal / COLS), gc = goal % COLS;
+  // Heuristic: Euclidean grid-unit distance (consistent with nbrBase units)
+  const h = idx => {
+    const dr = Math.floor(idx / COLS) - gr, dc = (idx % COLS) - gc;
+    return Math.sqrt(dr * dr + dc * dc);
+  };
+
+  g[start] = 0;
+  const open = new MinHeap();
+  open.push(h(start), start);
+
+  while (open.size) {
+    const [, cur] = open.pop();
+    if (cur === goal) {
+      const path = []; let c = goal;
+      while (c !== -1) { path.push(c); c = came[c]; }
+      return path.reverse();
+    }
+    if (done[cur]) continue;
+    done[cur] = 1;
+
+    for (let d = 0; d < dirLimit; d++) {
+      const nb = nbrIdx[cur * NDIRS + d];
+      if (nb < 0 || done[nb]) continue;
+      const cost = usePathDep ? edgeCost(cur, d) : nbrBase[cur * NDIRS + d];
+      if (!isFinite(cost)) continue;
+      const ng = g[cur] + cost;
+      if (ng < g[nb]) {
+        g[nb] = ng; came[nb] = cur;
+        open.push(ng + h(nb), nb);
+      }
+    }
+  }
+  return null;
+}
+
+// ── Grid ↔ world ──────────────────────────────────────────────────────────────
+function gridToWorld(idx, exag, yOff = 1.5) {
+  const row = Math.floor(idx / COLS), col = idx % COLS;
+  return new THREE.Vector3(
+    (col / (COLS-1) - 0.5) * COLS,
+    (elevData[idx] / UNIT_M) * exag + yOff,
+    (row / (ROWS-1) - 0.5) * ROWS
+  );
+}
+function worldToGrid(p) {
+  const col = Math.max(0, Math.min(COLS-1, Math.round((p.x/COLS+0.5)*(COLS-1))));
+  const row = Math.max(0, Math.min(ROWS-1, Math.round((p.z/ROWS+0.5)*(ROWS-1))));
+  return row * COLS + col;
+}
+
+// ── Waypoint pins ─────────────────────────────────────────────────────────────
+function makePin(color) {
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(new THREE.SphereGeometry(4,10,8),
+          new THREE.MeshLambertMaterial({ color })));
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.6,12,6),
+               new THREE.MeshLambertMaterial({ color }));
+  pole.position.y = -8; grp.add(pole);
+  return grp;
+}
+const pinA = makePin(0x22cc44); scene.add(pinA);
+const pinB = makePin(0xff4422); scene.add(pinB);
+let idxA = 174 * COLS + 198;
+let idxB = 272 * COLS + 110;
+function placeMarkers(exag) {
+  pinA.position.copy(gridToWorld(idxA, exag, 10));
+  pinB.position.copy(gridToWorld(idxB, exag, 10));
+}
+
+// ── Path line ─────────────────────────────────────────────────────────────────
+const pathGeo  = new THREE.BufferGeometry();
+const pathMat  = new THREE.LineBasicMaterial({ color: 0xffcc00, linewidth: 2 });
+const pathLine = new THREE.Line(pathGeo, pathMat);
+scene.add(pathLine);
+let currentPath = null;
+
+function drawPath(path, exag) {
+  if (!path || path.length < 2) {
+    pathGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+    return;
+  }
+  const pts = new Float32Array(path.length * 3);
+  for (let k = 0; k < path.length; k++) {
+    const v = gridToWorld(path[k], exag, 2.0);
+    pts[k*3]=v.x; pts[k*3+1]=v.y; pts[k*3+2]=v.z;
+  }
+  pathGeo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+}
+
+function setPinsVisible(visible) {
+  pinA.visible = visible;
+  pinB.visible = visible;
+  if (!visible) drawPath(null, currentExag);
+}
+
+function updatePath() {
+  if (!document.getElementById('show-manual').checked) return;
+  const dep    = document.getElementById('use-dep').checked;
+  const knight = document.getElementById('p-knight').checked;
+  currentPath  = aStar(idxA, idxB, dep, knight);
+  drawPath(currentPath, currentExag);
+  const info = document.getElementById('path-info');
+  if (currentPath) {
+    const km = (currentPath.length * UNIT_M / 1000).toFixed(0);
+    info.innerHTML = (dep ? '<span style="color:#58a6ff">Path-dep.</span>' : 'Base cost')
+      + `  ·  ${currentPath.length} cells ≈ ${km} km`;
+  } else {
+    info.textContent = 'No path found';
+  }
+}
+
+placeMarkers(2); updatePath();
+
+// ── Drag interaction ──────────────────────────────────────────────────────────
+let dragTarget = null, pathTimer = null;
+const DRAG_RAY = new THREE.Raycaster(), DRAG_MV = new THREE.Vector2();
+const pinAMeshes = [], pinBMeshes = [];
+pinA.traverse(o => { if (o.isMesh) pinAMeshes.push(o); });
+pinB.traverse(o => { if (o.isMesh) pinBMeshes.push(o); });
+
+canvas.addEventListener('pointerdown', ev => {
+  DRAG_MV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+  DRAG_RAY.setFromCamera(DRAG_MV, camera);
+  if      (DRAG_RAY.intersectObjects(pinAMeshes).length) dragTarget = 'A';
+  else if (DRAG_RAY.intersectObjects(pinBMeshes).length) dragTarget = 'B';
+  if (dragTarget) { controls.enabled = false; canvas.style.cursor = 'grabbing'; ev.preventDefault(); }
+});
+canvas.addEventListener('pointermove', ev => {
+  if (!dragTarget) return;
+  DRAG_MV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+  DRAG_RAY.setFromCamera(DRAG_MV, camera);
+  const hits = DRAG_RAY.intersectObject(mesh);
+  if (!hits.length) return;
+  const ni = worldToGrid(hits[0].point);
+  if (dragTarget === 'A') { idxA = ni; pinA.position.copy(gridToWorld(ni, currentExag, 10)); }
+  else                    { idxB = ni; pinB.position.copy(gridToWorld(ni, currentExag, 10)); }
+  clearTimeout(pathTimer); pathTimer = setTimeout(updatePath, 80);
+});
+canvas.addEventListener('pointerup', () => {
+  if (!dragTarget) return;
+  dragTarget = null; controls.enabled = true; canvas.style.cursor = '';
+  clearTimeout(pathTimer); updatePath();
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UI WIRING
+// ══════════════════════════════════════════════════════════════════════════════
+const exagSlider = document.getElementById('exag');
+exagSlider.addEventListener('input', () => {
+  const v = +exagSlider.value;
+  document.getElementById('exag-val').textContent = v + '×';
+  applyExag(v);
+});
+document.getElementById('wire').addEventListener('change',
+  e => { mat.wireframe = e.target.checked; });
+document.getElementById('use-dep').addEventListener('change', updatePath);
+document.getElementById('p-knight').addEventListener('change', updatePath);
+document.getElementById('show-manual').addEventListener('change', e => {
+  setPinsVisible(e.target.checked);
+  if (e.target.checked) updatePath();
+});
+
+// ── View mode ─────────────────────────────────────────────────────────────────
+function setViewMode(mode) {
+  scene.fog = mode === 'analysis' ? null : colourFog;
+  applyTrafficToMesh();   // repaints base + traffic for the new mode
+  if (mode === 'analysis') {
+    pinA.traverse(o => { if (o.isMesh) o.material.color.set(0xffcc00); });
+    pinB.traverse(o => { if (o.isMesh) o.material.color.set(0xffcc00); });
+  } else {
+    pinA.traverse(o => { if (o.isMesh) o.material.color.set(0x22cc44); });
+    pinB.traverse(o => { if (o.isMesh) o.material.color.set(0xff4422); });
+  }
+}
+document.getElementById('view-mode').addEventListener('change',
+  e => setViewMode(e.target.value));
+
+// ── Movement parameter sliders + presets ─────────────────────────────────────
+function bindParam(id, key, valId, dec) {
+  const el = document.getElementById(id), vEl = document.getElementById(valId);
+  el.addEventListener('input', () => {
+    P[key] = +el.value;
+    vEl.textContent = (+el.value).toFixed(dec);
+    document.getElementById('p-mode').value = 'custom';
+    buildBaseCosts();
+    clearTimeout(pathTimer); pathTimer = setTimeout(updatePath, 150);
+  });
+}
+bindParam('p-uphill',   'uphill',      'v-uphill',   1);
+bindParam('p-downhill', 'downhill',    'v-downhill', 1);
+bindParam('p-water',    'waterFactor', 'v-water',    2);
+bindParam('p-trans',    'transition',  'v-trans',    1);
+bindParam('p-slope',    'maxSlope',    'v-slope',    0);
+
+function applyPreset(name) {
+  const pr = PRESETS[name]; if (!pr) return;
+  Object.assign(P, pr);
+  const set = (id, key, valId, dec) => {
+    const el = document.getElementById(id);
+    el.value = P[key];
+    document.getElementById(valId).textContent = P[key].toFixed(dec);
+  };
+  set('p-uphill',   'uphill',      'v-uphill',   1);
+  set('p-downhill', 'downhill',    'v-downhill', 1);
+  set('p-water',    'waterFactor', 'v-water',    2);
+  set('p-trans',    'transition',  'v-trans',    1);
+  set('p-slope',    'maxSlope',    'v-slope',    0);
+  buildBaseCosts();
+  updatePath();
+}
+document.getElementById('p-mode').addEventListener('change', e => {
+  if (e.target.value !== 'custom') applyPreset(e.target.value);
+});
+document.getElementById('sim-start').addEventListener('click', startSim);
+document.getElementById('sim-stop' ).addEventListener('click', stopSim);
+document.getElementById('sim-reset').addEventListener('click', resetSim);
+
+// ── Stats display ─────────────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('s-pass').textContent = passableCount.toLocaleString();
+  document.getElementById('s-imp' ).textContent = impassableCount.toLocaleString();
+}
+const totalLand = Array.from(isWater).filter(v => !v).length;
+document.getElementById('s-farm').textContent =
+  `${farmableCount.toLocaleString()}  (${(farmableCount / totalLand * 100).toFixed(1)}% of land)`;
+updateStats();
+
+// ── Hover tooltip ─────────────────────────────────────────────────────────────
+const hoverRay = new THREE.Raycaster(), hoverMV = new THREE.Vector2();
+const tooltip  = document.getElementById('tooltip');
+window.addEventListener('mousemove', ev => {
+  if (dragTarget) return;
+  hoverMV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+  hoverRay.setFromCamera(hoverMV, camera);
+  const hits = hoverRay.intersectObject(mesh);
+  if (!hits.length) { tooltip.textContent = 'Hover over terrain'; return; }
+  const p = hits[0].point;
+  const col = Math.max(0, Math.min(COLS-1, Math.round((p.x/COLS+0.5)*(COLS-1))));
+  const row = Math.max(0, Math.min(ROWS-1, Math.round((p.z/ROWS+0.5)*(ROWS-1))));
+  const idx = row * COLS + col;
+  const lon = BOUNDS.west  + (col/(COLS-1)) * (BOUNDS.east  - BOUNDS.west);
+  const lat = BOUNDS.north - (row/(ROWS-1)) * (BOUNDS.north - BOUNDS.south);
+  const tags = [isWater[idx] ? 'water' : '', isFarmable[idx] ? 'farmable' : ''].filter(Boolean).join('  ·  ');
+  tooltip.textContent = `${lat.toFixed(4)}°N  ${lon.toFixed(4)}°E  ·  ${Math.round(elevData[idx])} m`
+    + (tags ? `  ·  ${tags}` : '');
+});
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ── Show UI ───────────────────────────────────────────────────────────────────
+document.getElementById('loading').style.display = 'none';
+document.getElementById('ui').style.display      = 'flex';
+document.getElementById('legend').style.display  = 'flex';
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>

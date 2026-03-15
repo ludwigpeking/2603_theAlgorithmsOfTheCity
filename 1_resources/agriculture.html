@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Great Wall — Agriculture Density</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #f4f0eb; overflow: hidden;
+       font-family: 'Segoe UI', system-ui, sans-serif; }
+canvas { display: block; }
+
+/* ── left control panel ─────────────────────────────────────────────────── */
+#ui {
+  position: fixed; top: 16px; left: 16px;
+  background: rgba(255,253,250,0.94); backdrop-filter: blur(10px);
+  border: 1px solid #d0cbc2; border-radius: 10px;
+  padding: 16px 18px; color: #2a2520; font-size: 0.8rem;
+  display: flex; flex-direction: column; gap: 10px; min-width: 252px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+}
+#ui h2 { font-size: 0.92rem; color: #1a1510; font-weight: 600; }
+#ui p  { font-size: 0.7rem; color: #7a7068; margin-top: 1px; }
+.section {
+  font-size: 0.72rem; color: #1a5faa; font-weight: 600;
+  border-top: 1px solid #e0dbd4; padding-top: 8px;
+}
+.ctrl  { display: flex; align-items: center; gap: 8px; }
+.ctrl label { flex: 0 0 100px; color: #6a6058; font-size: 0.73rem; }
+.ctrl input[type=range] { flex: 1; accent-color: #1a5faa; cursor: pointer; }
+.ctrl input[type=checkbox] {
+  accent-color: #1a5faa; cursor: pointer; width:14px; height:14px;
+}
+.ctrl select {
+  flex: 1; background: #f4f0eb; color: #2a2520;
+  border: 1px solid #d0cbc2; border-radius: 4px;
+  padding: 2px 4px; font-size: 0.73rem; cursor: pointer;
+}
+.val { color: #1a5faa; font-size: 0.73rem; min-width: 42px; text-align: right; }
+.note { font-size: 0.68rem; color: #9a9088; line-height: 1.4; }
+
+/* ── right legend ───────────────────────────────────────────────────────── */
+#legend {
+  position: fixed; top: 16px; right: 16px;
+  background: rgba(255,253,250,0.94); backdrop-filter: blur(10px);
+  border: 1px solid #d0cbc2; border-radius: 10px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+  font-size: 0.7rem; box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+}
+#legend-title { color: #6a6058; margin-bottom: 4px; font-size: 0.72rem; font-weight: 600; }
+.leg-row { display: flex; align-items: center; gap: 8px; color: #6a6058; }
+.leg-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+#legend-agri .leg-swatch { height: 8px; border-radius: 2px; }
+
+/* ── bottom tooltip ─────────────────────────────────────────────────────── */
+#tooltip {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(255,253,250,0.94); border: 1px solid #d0cbc2; border-radius: 6px;
+  padding: 6px 16px; color: #6a6058; font-size: 0.75rem;
+  pointer-events: none; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* ── loading overlay ────────────────────────────────────────────────────── */
+#loading {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: #f4f0eb; color: #7a7068; font-size: 0.9rem;
+  flex-direction: column; gap: 14px; z-index: 100;
+}
+#loading-msg { font-size: 0.82rem; color: #5a5048; }
+.spinner {
+  width: 36px; height: 36px; border: 3px solid #e0dbd4;
+  border-top-color: #1a5faa; border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <span id="loading-msg">Loading terrain…</span>
+</div>
+<canvas id="canvas"></canvas>
+
+<!-- left UI panel -->
+<div id="ui" style="display:none">
+  <div>
+    <h2>Great Wall — Agriculture Density</h2>
+    <p id="meta-label">greatWall.tif · DTM · EPSG:4326</p>
+  </div>
+
+  <div class="section">Terrain View</div>
+  <div class="ctrl">
+    <label>Exaggeration</label>
+    <input type="range" id="exag" min="1" max="30" value="5" step="0.5">
+    <span class="val" id="exag-val">5×</span>
+  </div>
+  <div class="ctrl">
+    <label>View</label>
+    <select id="view-mode">
+      <option value="terrain">Terrain colour</option>
+      <option value="agri" selected>Agriculture density</option>
+      <option value="streams">Debug: stream lines</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label>Wireframe</label>
+    <input type="checkbox" id="wire">
+  </div>
+
+  <div class="section">Agriculture Model</div>
+  <div class="ctrl">
+    <label>Lat. reduction</label>
+    <input type="range" id="lat-reduce" min="0" max="25" value="6" step="0.5">
+    <span class="val" id="lat-reduce-val">6 %/°</span>
+  </div>
+  <div class="ctrl">
+    <label>Elev. reduction</label>
+    <input type="range" id="elev-reduce" min="0" max="10" value="6" step="0.25">
+    <span class="val" id="elev-reduce-val">6 %/100m</span>
+  </div>
+  <p class="note">
+    Good farmland: slope 0.1 – 10 %.<br>
+    Score reduced per degree latitude above south edge,<br>
+    and per 100 m of elevation above sea level.
+  </p>
+
+  <div class="section" id="stream-section" style="display:none">Stream lines (debug)</div>
+  <div class="ctrl" id="stream-ctrl" style="display:none">
+    <label>Min accum.</label>
+    <input type="range" id="stream-thresh" min="0" max="1" value="0.35" step="0.01">
+    <span class="val" id="stream-thresh-val">0.35</span>
+  </div>
+  <p class="note" id="stream-note" style="display:none">
+    D8 lines follow actual flow direction.<br>
+    0 = all cells, 1 = trunk only (log scale).
+  </p>
+</div>
+
+<!-- right legend -->
+<div id="legend" style="display:none">
+  <!-- terrain legend (shown when view = terrain) -->
+  <div id="legend-terrain">
+    <div id="legend-title">Elevation</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(232,228,224)"></div>&gt; 4500 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(148,128,108)"></div>3000 – 4500 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(132,102,48)"></div>1900 – 3000 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(152,138,68)"></div>1200 – 1900 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(115,158,62)"></div>650 – 1200 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(135,182,88)"></div>280 – 650 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(182,208,122)"></div>80 – 280 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(218,212,152)"></div>0 – 80 m</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(75,148,210)"></div>Lakes / rivers</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(25,105,190)"></div>Sea</div>
+  </div>
+  <!-- agriculture legend (shown when view = agri) -->
+  <div id="legend-agri" style="display:none">
+    <div id="legend-title">Agriculture score</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(41,122,22)"></div>High  (1.0)</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(140,191,71)"></div>Good  (0.6)</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(222,214,130)"></div>Marginal (0.25)</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(194,184,163)"></div>Poor / steep</div>
+    <div class="leg-row"><div class="leg-swatch" style="background:rgb(56,120,199)"></div>Water</div>
+  </div>
+</div>
+
+<div id="tooltip">Hover over terrain</div>
+
+<script type="module">
+import * as THREE from 'https://esm.sh/three@0.169';
+import { OrbitControls } from 'https://esm.sh/three@0.169/examples/jsm/controls/OrbitControls.js';
+
+// ── Load metadata ─────────────────────────────────────────────────────────────
+const setMsg = t => { document.getElementById('loading-msg').textContent = t; };
+setMsg('Loading metadata…');
+
+let meta;
+try {
+  meta = await fetch('./gw_heightmap.json').then(r => {
+    if (!r.ok) throw new Error('Not found');
+    return r.json();
+  });
+} catch (e) {
+  document.getElementById('loading-msg').textContent =
+    'gw_heightmap.json not found — run process_greatwall.py first.';
+  throw e;
+}
+
+const COLS   = meta.width;
+const ROWS   = meta.height;
+const MIN_E  = meta.min_elev;
+const MAX_E  = meta.max_elev;
+const UNIT_M = meta.unit_m;
+const BOUNDS = meta.bounds;   // { west, east, south, north }
+
+// ── Mesh resolution ───────────────────────────────────────────────────────────
+// The full data grid is 1524×1080 = 3.3M triangles — too heavy for real-time.
+// We build the Three.js geometry at every STEP-th pixel (≈ rome3d.html scale).
+// All data arrays (elevData, slopeScore, isWater) remain at full COLS×ROWS so
+// hover tooltips and slope computation stay accurate.
+const STEP  = 3;
+const MCOLS = Math.floor((COLS - 1) / STEP) + 1;   // mesh grid width
+const MROWS = Math.floor((ROWS - 1) / STEP) + 1;   // mesh grid height
+// Helper: mesh vertex (mr, mc) → nearest data index
+function mIdx(mr, mc) {
+  const dr = Math.min(mr * STEP, ROWS - 1);
+  const dc = Math.min(mc * STEP, COLS - 1);
+  return dr * COLS + dc;
+}
+
+document.getElementById('meta-label').textContent =
+  `greatWall.tif · ${COLS}×${ROWS} · ${UNIT_M.toFixed(0)} m/px`;
+
+// ── Load PNGs ─────────────────────────────────────────────────────────────────
+function readImagePixels(src, w, h) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = Object.assign(document.createElement('canvas'), { width: w, height: h });
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(cv.getContext('2d').getImageData(0, 0, w, h).data);
+    };
+    img.onerror = () => reject(new Error('Cannot load ' + src));
+    img.src = src;
+  });
+}
+
+setMsg('Loading heightmap…');
+const [hPx, cPx, dPx, fPx, aPx] = await Promise.all([
+  readImagePixels('gw_heightmap.png',       COLS, ROWS),
+  readImagePixels('gw_heightmap_color.png', COLS, ROWS),
+  readImagePixels('gw_debug_rivers.png',    COLS, ROWS),
+  readImagePixels('gw_flowdir.png',         COLS, ROWS),
+  readImagePixels('gw_accum.png',           COLS, ROWS),
+]);
+
+// ── Decode elevation + water mask ─────────────────────────────────────────────
+// Heightmap uses 16-bit encoding: R = high byte, G = low byte (R*256 + G).
+// This avoids the ~12 m banding that 8-bit grayscale would produce.
+const elevData = new Float32Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++) {
+  const uint16 = hPx[i*4] * 256 + hPx[i*4+1];
+  elevData[i] = (uint16 / 65535) * (MAX_E - MIN_E) + MIN_E;
+}
+
+// Blue-dominant pixels are water (sea, rivers, lakes)
+const isWater = new Uint8Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++) {
+  const r = cPx[i*4], b = cPx[i*4+2];
+  if (b > r + 45 && b > 160) isWater[i] = 1;
+}
+
+// ── D8 flow direction (grayscale PNG: 0-7 = direction, 255 = outlet/nodata) ──
+const flowDir = new Uint8Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++) flowDir[i] = fPx[i*4];  // R = grayscale value
+
+// ── Log-normalised accumulation (RG 16-bit) ───────────────────────────────────
+const LOG_ACCUM_MAX = meta.log_accum_max;
+const accumNorm = new Float32Array(COLS * ROWS);
+for (let i = 0; i < COLS * ROWS; i++)
+  accumNorm[i] = (aPx[i*4] * 256 + aPx[i*4+1]) / 65535;  // 0..1 on log scale
+
+// D8 neighbour offsets (same order as Python DR/DC arrays)
+const D8R = [-1,-1, 0, 1, 1, 1, 0,-1];
+const D8C = [ 0, 1, 1, 1, 0,-1,-1,-1];
+
+// ── Precompute slope score per cell ───────────────────────────────────────────
+// slope % = |Δelev_m| / (dist_cells × unit_m) × 100
+// Good farmland: 0.1 % ≤ slope ≤ 10 %
+// < 0.1 %: too flat (poor drainage); > 10 %: falloff to 0 at 50 %
+setMsg('Computing slope scores…');
+const DIRS8 = [
+  [-1, 0, 1], [1, 0, 1], [0, -1, 1], [0, 1, 1],
+  [-1,-1, 1.414], [-1, 1, 1.414], [1,-1, 1.414], [1, 1, 1.414],
+];
+
+const slopeScore = new Float32Array(COLS * ROWS);
+for (let row = 0; row < ROWS; row++) {
+  for (let col = 0; col < COLS; col++) {
+    const i = row * COLS + col;
+    if (isWater[i]) continue;   // leave at 0
+
+    let maxS = 0;
+    const eCur = elevData[i];
+    for (const [dr, dc, dist] of DIRS8) {
+      const nr = row + dr, nc = col + dc;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      const s = Math.abs(elevData[nr * COLS + nc] - eCur) / (dist * UNIT_M) * 100;
+      if (s > maxS) maxS = s;
+    }
+
+    if (maxS < 0.1) {
+      slopeScore[i] = 0;                                  // too flat
+    } else if (maxS <= 10) {
+      slopeScore[i] = 1.0;                                // optimal
+    } else if (maxS <= 50) {
+      slopeScore[i] = 1 - (maxS - 10) / 40;              // linear falloff
+    }
+    // else remains 0
+  }
+}
+
+// ── Agriculture colour gradient ───────────────────────────────────────────────
+// score 0 (land) → sandy beige; score 1 → rich green
+const AGRI_GRAD = [
+  [0.00, [0.760, 0.720, 0.640]],  // poor / too steep or too flat
+  [0.20, [0.870, 0.838, 0.505]],  // marginal — pale straw
+  [0.55, [0.550, 0.748, 0.278]],  // good    — light green
+  [1.00, [0.160, 0.478, 0.086]],  // excellent — rich green
+];
+
+function agriColorAt(s) {
+  s = Math.max(0, Math.min(1, s));
+  for (let k = 1; k < AGRI_GRAD.length; k++) {
+    if (s <= AGRI_GRAD[k][0]) {
+      const t = (s - AGRI_GRAD[k-1][0]) / (AGRI_GRAD[k][0] - AGRI_GRAD[k-1][0]);
+      const a = AGRI_GRAD[k-1][1], b = AGRI_GRAD[k][1];
+      return [a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t, a[2] + (b[2]-a[2])*t];
+    }
+  }
+  return AGRI_GRAD[AGRI_GRAD.length-1][1];
+}
+
+// ── Build colour buffers (mesh resolution only) ───────────────────────────────
+// Colours are only needed per mesh vertex (MCOLS×MROWS), not per data pixel.
+// Hover scores are computed on-the-fly from the full-res data arrays.
+const meshColTerrain = new Float32Array(MCOLS * MROWS * 3);
+const meshColAgri    = new Float32Array(MCOLS * MROWS * 3);
+const meshColStreams  = new Float32Array(MCOLS * MROWS * 3);
+const LAT_REF   = BOUNDS.south;
+const latPerRow = (BOUNDS.north - BOUNDS.south) / (ROWS - 1);
+
+for (let mr = 0; mr < MROWS; mr++) {
+  for (let mc = 0; mc < MCOLS; mc++) {
+    const mi = mr * MCOLS + mc;
+    const di = mIdx(mr, mc);
+    meshColTerrain[mi*3]   = cPx[di*4]   / 255;
+    meshColTerrain[mi*3+1] = cPx[di*4+1] / 255;
+    meshColTerrain[mi*3+2] = cPx[di*4+2] / 255;
+    meshColStreams[mi*3]   = dPx[di*4]   / 255;
+    meshColStreams[mi*3+1] = dPx[di*4+1] / 255;
+    meshColStreams[mi*3+2] = dPx[di*4+2] / 255;
+  }
+}
+
+// ── Precompute max log-normalised accumulation per mesh vertex ─────────────────
+// Each mesh vertex covers STEP×STEP data cells. A 1-pixel-wide river is missed
+// ~⅔ of the time by the stride-3 sampler.  Taking the neighbourhood max ensures
+// any stream that falls anywhere near the vertex is captured — same data source
+// as the D8 line debug, so terrain and agri colours match the 3D lines exactly.
+// ±1 neighbourhood (3×3 window) gives 1-mesh-vertex-wide rivers while still
+// catching 1-pixel-wide streams that might land anywhere within the STEP stride.
+// Sea cells (elevData < 0) are excluded so rivers never bleed into open ocean.
+const meshAccumNorm = new Float32Array(MCOLS * MROWS);
+for (let mr = 0; mr < MROWS; mr++) {
+  for (let mc = 0; mc < MCOLS; mc++) {
+    let best = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      const r = Math.max(0, Math.min(ROWS - 1, mr * STEP + dr));
+      for (let dc = -1; dc <= 1; dc++) {
+        const c = Math.max(0, Math.min(COLS - 1, mc * STEP + dc));
+        const idx = r * COLS + c;
+        if (elevData[idx] < 0) continue;   // skip sea cells
+        const n = accumNorm[idx];
+        if (n > best) best = n;
+      }
+    }
+    meshAccumNorm[mr * MCOLS + mc] = best;
+  }
+}
+
+// River colour tiers in accumNorm space (log-normalised, matched to Python km² thresholds)
+const RIVER_COL_TIERS = [
+  [0.61, [0.43, 0.69, 0.88]],  // minor  ~1 000 km²
+  [0.73, [0.22, 0.51, 0.82]],  // medium ~5 000 km²
+  [0.83, [0.08, 0.36, 0.73]],  // main  ~20 000 km²
+  [0.93, [0.03, 0.22, 0.60]],  // major ~80 000 km²
+];
+
+function applyRiverColors(buf) {
+  for (let mi = 0; mi < MCOLS * MROWS; mi++) {
+    const best = meshAccumNorm[mi];
+    let col = null;
+    for (let t = 0; t < RIVER_COL_TIERS.length; t++)
+      if (best >= RIVER_COL_TIERS[t][0]) col = RIVER_COL_TIERS[t][1];
+    if (!col) continue;
+    buf[mi*3] = col[0]; buf[mi*3+1] = col[1]; buf[mi*3+2] = col[2];
+  }
+}
+
+applyRiverColors(meshColTerrain);  // bake rivers into terrain colour once
+
+function buildAgriColors(latReduce, elevReduce) {
+  for (let mr = 0; mr < MROWS; mr++) {
+    const dr  = Math.min(mr * STEP, ROWS - 1);
+    const lat = BOUNDS.north - dr * latPerRow;
+    const latFactor = Math.max(0, 1 - (latReduce / 100) * (lat - LAT_REF));
+    for (let mc = 0; mc < MCOLS; mc++) {
+      const mi = mr * MCOLS + mc;
+      const di = mIdx(mr, mc);
+      if (isWater[di]) {
+        meshColAgri[mi*3] = 0.22; meshColAgri[mi*3+1] = 0.47; meshColAgri[mi*3+2] = 0.78;
+        continue;
+      }
+      const elev = elevData[di];
+      const elevFactor = elev >= 0
+        ? Math.max(0, 1 - (elevReduce / 100) * (elev / 100))
+        : 0;
+      const score = slopeScore[di] * latFactor * elevFactor;
+      const [r, g, b] = agriColorAt(score);
+      meshColAgri[mi*3] = r; meshColAgri[mi*3+1] = g; meshColAgri[mi*3+2] = b;
+    }
+  }
+  applyRiverColors(meshColAgri);  // overlay rivers on top of agriculture scores
+}
+
+setMsg('Building scene…');
+buildAgriColors(6, 6);   // initial values matching slider defaults
+
+// ── Renderer / scene / camera ─────────────────────────────────────────────────
+const canvas   = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xd8e8f4);   // soft daylight sky
+const haze = new THREE.FogExp2(0xd8e8f4, 0.00035);
+scene.fog  = haze;
+
+// Wider field of view for a large terrain; position out front
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 1, 8000);
+camera.position.set(0, ROWS * 0.45, ROWS * 1.2);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.target.set(0, 0, 0);
+controls.maxDistance = COLS * 2.2;
+controls.minDistance = 10;
+controls.update();
+
+// ── Lighting (daylight scheme) ────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xf0f4ff, 0.65));
+const sun = new THREE.DirectionalLight(0xfff5d8, 1.1);
+sun.position.set(-COLS * 0.5, ROWS * 0.8, COLS * 0.3);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xb8d4f0, 0.25);
+fill.position.set(COLS * 0.4, ROWS * 0.2, COLS * 0.1);
+scene.add(fill);
+
+// ── Terrain mesh ──────────────────────────────────────────────────────────────
+let currentExag = 5;
+
+function buildGeometry(zExag) {
+  // Build at MCOLS×MROWS (1/STEP resolution) — ~366K triangles vs 3.3M full-res
+  const pos = new Float32Array(MCOLS * MROWS * 3);
+  for (let mr = 0; mr < MROWS; mr++) {
+    for (let mc = 0; mc < MCOLS; mc++) {
+      const mi = mr * MCOLS + mc;
+      const di = mIdx(mr, mc);
+      const dc = Math.min(mc * STEP, COLS - 1);
+      const dr = Math.min(mr * STEP, ROWS - 1);
+      pos[mi*3]   = (dc / (COLS-1) - 0.5) * COLS;
+      pos[mi*3+1] = (elevData[di] / UNIT_M) * zExag;
+      pos[mi*3+2] = (dr / (ROWS-1) - 0.5) * ROWS;
+    }
+  }
+  const idx = [];
+  for (let mr = 0; mr < MROWS-1; mr++)
+    for (let mc = 0; mc < MCOLS-1; mc++) {
+      const a=mr*MCOLS+mc, b=mr*MCOLS+mc+1, d=(mr+1)*MCOLS+mc, e=(mr+1)*MCOLS+mc+1;
+      idx.push(a, d, b,  d, e, b);
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(meshColAgri.slice(), 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const mat  = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+const mesh = new THREE.Mesh(buildGeometry(currentExag), mat);
+scene.add(mesh);
+
+// ── Stream lines (3D LineSegments, float above mesh — cannot be overwritten) ──
+const streamGeo = new THREE.BufferGeometry();
+const streamMat = new THREE.LineBasicMaterial({ color: 0x1a3f8a });
+const streamLines = new THREE.LineSegments(streamGeo, streamMat);
+streamLines.visible = false;
+scene.add(streamLines);
+
+function buildStreamLines(threshold, zExag) {
+  const pts = [];
+  const Y_OFF = 3.0;   // world-units above terrain surface
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const i = row * COLS + col;
+      if (accumNorm[i] < threshold) continue;
+      const dir = flowDir[i];
+      if (dir === 255) continue;            // outlet or nodata — no downstream
+      const nr = row + D8R[dir], nc = col + D8C[dir];
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      pts.push(
+        (col / (COLS-1) - 0.5) * COLS,
+        (elevData[i]             / UNIT_M) * zExag + Y_OFF,
+        (row / (ROWS-1) - 0.5) * ROWS,
+        (nc  / (COLS-1) - 0.5) * COLS,
+        (elevData[nr * COLS + nc] / UNIT_M) * zExag + Y_OFF,
+        (nr  / (ROWS-1) - 0.5) * ROWS
+      );
+    }
+  }
+  streamGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+  streamGeo.attributes.position.needsUpdate = true;
+}
+
+// ── Exaggeration update ───────────────────────────────────────────────────────
+function applyExag(zExag) {
+  currentExag = zExag;
+  const pos = mesh.geometry.attributes.position.array;
+  for (let mr = 0; mr < MROWS; mr++)
+    for (let mc = 0; mc < MCOLS; mc++) {
+      const mi = mr * MCOLS + mc;
+      pos[mi*3+1] = (elevData[mIdx(mr, mc)] / UNIT_M) * zExag;
+    }
+  mesh.geometry.attributes.position.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  if (currentView === 'streams')
+    buildStreamLines(+document.getElementById('stream-thresh').value, zExag);
+}
+
+// ── View mode ─────────────────────────────────────────────────────────────────
+let currentView = 'agri';
+
+function setViewMode(mode) {
+  currentView = mode;
+  const isStreams = mode === 'streams';
+  // mesh colour: neutral gray for stream-line view, otherwise terrain/agri
+  const src = isStreams ? null : (mode === 'terrain' ? meshColTerrain : meshColAgri);
+  if (src) {
+    mesh.geometry.attributes.color.array.set(src);
+    mesh.geometry.attributes.color.needsUpdate = true;
+  } else {
+    // flat mid-gray so lines read clearly
+    mesh.geometry.attributes.color.array.fill(0.82);
+    mesh.geometry.attributes.color.needsUpdate = true;
+  }
+  streamLines.visible = isStreams;
+  if (isStreams) buildStreamLines(+document.getElementById('stream-thresh').value, currentExag);
+  scene.fog = mode === 'terrain' ? haze : null;
+  document.getElementById('legend-terrain').style.display = mode === 'terrain' ? '' : 'none';
+  document.getElementById('legend-agri').style.display    = mode === 'agri'    ? '' : 'none';
+  // show/hide stream controls
+  const show = isStreams ? '' : 'none';
+  document.getElementById('stream-section').style.display = show;
+  document.getElementById('stream-ctrl').style.display    = show;
+  document.getElementById('stream-note').style.display    = show;
+}
+
+// ── Rebuild agriculture colours and refresh mesh ──────────────────────────────
+function refreshAgri() {
+  const latR  = +document.getElementById('lat-reduce').value;
+  const elevR = +document.getElementById('elev-reduce').value;
+  buildAgriColors(latR, elevR);
+  if (currentView === 'agri') {
+    mesh.geometry.attributes.color.array.set(meshColAgri);
+    mesh.geometry.attributes.color.needsUpdate = true;
+  }
+}
+
+// ── UI wiring ─────────────────────────────────────────────────────────────────
+const exagSlider = document.getElementById('exag');
+exagSlider.addEventListener('input', () => {
+  const v = +exagSlider.value;
+  document.getElementById('exag-val').textContent = v + '×';
+  applyExag(v);
+});
+
+document.getElementById('wire').addEventListener('change', e => {
+  mat.wireframe = e.target.checked;
+});
+
+document.getElementById('view-mode').addEventListener('change', e => {
+  setViewMode(e.target.value);
+});
+
+const latSlider  = document.getElementById('lat-reduce');
+const elevSlider = document.getElementById('elev-reduce');
+
+latSlider.addEventListener('input', () => {
+  document.getElementById('lat-reduce-val').textContent =
+    (+latSlider.value).toFixed(1) + ' %/°';
+  refreshAgri();
+});
+
+elevSlider.addEventListener('input', () => {
+  document.getElementById('elev-reduce-val').textContent =
+    (+elevSlider.value).toFixed(2) + ' %/100m';
+  refreshAgri();
+});
+
+document.getElementById('stream-thresh').addEventListener('input', function() {
+  document.getElementById('stream-thresh-val').textContent = (+this.value).toFixed(2);
+  if (currentView === 'streams') buildStreamLines(+this.value, currentExag);
+});
+
+// ── Hover tooltip ─────────────────────────────────────────────────────────────
+const hoverRay = new THREE.Raycaster();
+const hoverMV  = new THREE.Vector2();
+const tooltip  = document.getElementById('tooltip');
+
+window.addEventListener('mousemove', ev => {
+  hoverMV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+  hoverRay.setFromCamera(hoverMV, camera);
+  const hits = hoverRay.intersectObject(mesh);
+  if (!hits.length) { tooltip.textContent = 'Hover over terrain'; return; }
+
+  const p   = hits[0].point;
+  const col = Math.max(0, Math.min(COLS-1, Math.round((p.x/COLS + 0.5) * (COLS-1))));
+  const row = Math.max(0, Math.min(ROWS-1, Math.round((p.z/ROWS + 0.5) * (ROWS-1))));
+  const lon = BOUNDS.west  + (col/(COLS-1)) * (BOUNDS.east  - BOUNDS.west);
+  const lat = BOUNDS.north - (row/(ROWS-1)) * (BOUNDS.north - BOUNDS.south);
+  const i   = row * COLS + col;
+  const e   = Math.round(elevData[i]);
+
+  if (currentView === 'terrain') {
+    tooltip.textContent = `${lat.toFixed(3)}°N  ${lon.toFixed(3)}°E  ·  ${e} m`;
+  } else {
+    // Compute live agri score for tooltip
+    const latR    = +latSlider.value;
+    const elevR   = +elevSlider.value;
+    const latFac  = Math.max(0, 1 - (latR/100) * (lat - LAT_REF));
+    const elevFac = e >= 0 ? Math.max(0, 1 - (elevR/100) * (e/100)) : 0;
+    const score   = isWater[i] ? null : slopeScore[i] * latFac * elevFac;
+    const scoreStr = isWater[i] ? 'water' : score.toFixed(2);
+    tooltip.textContent =
+      `${lat.toFixed(3)}°N  ${lon.toFixed(3)}°E  ·  ${e} m  ·  agri: ${scoreStr}`;
+  }
+});
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ── Show UI ───────────────────────────────────────────────────────────────────
+document.getElementById('loading').style.display  = 'none';
+document.getElementById('ui').style.display      = 'flex';
+document.getElementById('legend').style.display  = 'flex';
+// Start in agri view — show agri legend, hide terrain legend
+document.getElementById('legend-terrain').style.display = 'none';
+document.getElementById('legend-agri').style.display    = '';
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

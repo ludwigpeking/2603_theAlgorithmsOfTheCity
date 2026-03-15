@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>III · Pathfindings — Algorithms of the City</title>
+<link rel="stylesheet" href="../common/style.css">
+</head>
+<body>
+
+<nav>
+  <a class="nav-home" href="../index.html">Algorithms of the City</a>
+  <a class="active" href="index.html">III · Pathfindings</a>
+</nav>
+
+<div class="page-wrap">
+
+  <header class="chapter-header">
+    <h1>III · Pathfindings</h1>
+    <p><i>"I shall either find a way or make one."<br>
+— Hannibal Barca (attributed) <br><br>
+"Nature is thrifty in all its actions... Nature always takes the shortest path."<br>
+— Pierre de Fermat<br><br>
+
+      "Life is an aggregation of path finding. And the city is an aggregation of these lifes."<br>
+— the author</i>
+    </p>
+  </header>
+
+  <!-- ── III.1 Distance ──────────────────────────────────────────────────────── -->
+  <section id="distance">
+    <div class="section-num">III.1</div>
+    <div class="section-text">
+      <h2>A* Pathfinding Algorithm</h2>
+    </div>
+    <div class="entry-grid">
+      <div class="prose">
+          <p>The algorithm that finds the shortest path is called <strong>A*</strong> (A-star).
+           It works like a smart frontier search: it always expands the cell that looks most
+           promising — cheapest so far, plus a guess of how far remains. The guess is the
+           straight-line distance to the goal. Because straight-line distance never
+           overestimates real distance, A* is guaranteed to find the true shortest path.</p>
+        <p>This distance-only path is the baseline. In the sections that follow, terrain costs
+           are layered on top, and the path bends in response. Every deviation you see is
+           caused by friction that did not exist here.</p>
+        <pre><span class="cm">// Step cost: how far is one move?</span>
+<span class="cm">//   straight step (N/S/E/W) → 1.0</span>
+<span class="cm">//   diagonal step           → 1.4</span>
+<span class="cm">//   knight-move step        → 2.2</span>
+
+<span class="cm">// --- Setup ---</span>
+mark every cell as unvisited, best_cost_to = ∞
+best_cost_to[start] <span class="op">=</span> 0
+add start to frontier  <span class="cm">// frontier = cells to explore, sorted by priority</span>
+
+<span class="cm">// --- Search ---</span>
+<span class="kw">while</span> frontier <span class="op">not</span> empty:
+  current <span class="op">=</span> pick cell with lowest priority from frontier
+  <span class="kw">if</span> current <span class="op">==</span> goal: <span class="kw">stop</span>   <span class="cm">// reached destination</span>
+
+  <span class="kw">for each</span> neighbour <span class="kw">of</span> current:
+    cost_so_far  <span class="op">=</span> best_cost_to[current] <span class="op">+</span> step_cost   <span class="cm">// actual distance walked</span>
+    straight_line_to_goal <span class="op">=</span> sqrt( row_gap² <span class="op">+</span> col_gap² ) <span class="cm">// best-case remaining</span>
+    priority     <span class="op">=</span> cost_so_far <span class="op">+</span> straight_line_to_goal   <span class="cm">// lower = more promising</span>
+
+    <span class="kw">if</span> cost_so_far <span class="op">&lt;</span> best_cost_to[neighbour]:
+      best_cost_to[neighbour] <span class="op">=</span> cost_so_far
+      came_from[neighbour]    <span class="op">=</span> current   <span class="cm">// remember how we got here</span>
+      add neighbour to frontier with this priority
+
+<span class="cm">// --- Reconstruct path ---</span>
+<span class="cm">// follow came_from[] backwards from goal to start</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ── III.2 Elevation ─────────────────────────────────────────────────────── -->
+  <section id="elevation">
+    <div class="section-num">III.2</div>
+    <div class="section-text">
+      <h2>Elevation-Change Cost</h2>
+      <p>Slope as resistance: routes bend toward valleys, saddles, and gentle grades.</p>
+    </div>
+    <div class="entry-grid">
+      <div class="prose">
+        <p>Terrain is not flat. Ascending a slope costs energy; descending costs control
+           and safety. Once elevation change enters the cost function, routes bend away from
+           mountains and towards valleys, saddles, and river plains — the same topographic
+           logic that placed Rome's roads along the gentle gradients between her hills.</p>
+        <p>Uphill and downhill costs need not be equal. A laden mule exhausts itself
+           climbing; it merely risks a stumble going down. Early road builders intuitively
+           calibrated these asymmetries, choosing routes that traded extra distance for
+           manageable grades. The Via Appia holds a consistent 3–4% grade for hundreds of
+           kilometres precisely because that is the threshold of cart viability.</p>
+        <p>A maximum slope parameter makes steep terrain simply impassable — the algorithmic
+           equivalent of a cliff. Routes are forced through passes, creating the bottlenecks
+           that mountain communities have exploited for taxation and defence across history.</p>
+        <p>Adjust the sliders and watch the elevation path retreat from steep ridges, converge
+           on passes, and trace the valley floors. The blue distance path holds its straight
+           line; the red elevation path bends wherever the terrain demands.</p>
+        <pre><span class="cm">// Elevation-weighted edge cost</span>
+<span class="kw">function</span> <span class="fn">edgeCost</span>(i, d):
+  dist   <span class="op">=</span> DD16[d] <span class="op">×</span> UNIT_M     <span class="cm">// ground distance in metres</span>
+  dElev  <span class="op">=</span> elev[nbr] <span class="op">-</span> elev[i]   <span class="cm">// positive = uphill</span>
+  slope  <span class="op">=</span> |dElev| <span class="op">/</span> dist
+
+  <span class="kw">if</span> slope <span class="op">></span> maxSlope: <span class="kw">return</span> ∞   <span class="cm">// impassable</span>
+
+  cost <span class="op">=</span> dist
+  <span class="kw">if</span> dElev <span class="op">></span> 0:  cost <span class="op">+=</span> <span class="nm">uphill</span>   <span class="op">×</span> dElev
+  <span class="kw">else</span>:          cost <span class="op">+=</span> <span class="nm">downhill</span> <span class="op">×</span> |dElev|
+
+  <span class="kw">return</span> cost</pre>
+      </div>
+      <div class="sim-panel">
+        <div style="padding:12px 14px 10px;border-bottom:1px solid var(--border);background:var(--panel);">
+          <div style="font-family:'Segoe UI',system-ui,sans-serif;font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:3px;">Two paths, same origin — different cost models</div>
+          <div style="font-size:0.72rem;color:var(--muted);">Place pins A and B on the map. The <span style="color:#c0392b;font-weight:600;">red path</span> ignores terrain and minimises distance only. The <span style="color:#a07800;font-weight:600;">yellow path</span> accounts for uphill effort, steep slopes, and water crossings. Drag pins to explore.</div>
+        </div>
+        <div class="sim-canvas-wrap sim-clickable">
+          <canvas id="cv2" width="512" height="338"></canvas>
+        </div>
+        <div class="sim-controls">
+          <div class="sim-legend">
+            <span class="legend-red">— Distance path</span>
+            <span class="legend-yellow">— Elevation path</span>
+            <span id="p2-status" class="sim-hint">Click to place A, then B · drag to move</span>
+          </div>
+          <div id="p2-compare" style="font-size:0.68rem;font-family:monospace;display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-top:2px;"></div>
+          <div class="sim-row">
+            <span class="sim-label">Uphill ×</span>
+            <input type="range" id="p2-up" min="0" max="100" step="1" value="100">
+            <span class="sim-val" id="p2-up-v">100</span>
+          </div>
+          <div class="sim-row">
+            <span class="sim-label">Downhill ×</span>
+            <input type="range" id="p2-dn" min="0" max="100" step="1" value="50">
+            <span class="sim-val" id="p2-dn-v">50</span>
+          </div>
+          <div class="sim-row">
+            <span class="sim-label">Max slope %</span>
+            <input type="range" id="p2-sl" min="0" max="50" step="1" value="15">
+            <span class="sim-val" id="p2-sl-v">15</span>
+          </div>
+          <div class="sim-row">
+            <span class="sim-label">Water factor</span>
+            <input type="range" id="p2-wf" min="0.01" max="100" step="0.01" value="0.1">
+            <span class="sim-val" id="p2-wf-v">0.1</span>
+          </div>
+          <div class="sim-row">
+            <span class="sim-label">Shore penalty</span>
+            <input type="range" id="p2-tr" min="0" max="30" step="0.5" value="30">
+            <span class="sim-val" id="p2-tr-v">30</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ── III.3 Modes ────────────────────────────────────────────────────────── -->
+  <section id="modes">
+    <div class="section-num">III.3</div>
+    <div class="section-text">
+      <h2>Modes of Transportation</h2>
+      <p>Each technology defines its own cost surface across the landscape.</p>
+    </div>
+    <div class="entry-grid">
+      <div class="prose">
+        <p>Not all travellers are equal before the same slope. A pedestrian scrambles over
+           terrain that would halt a loaded cart; a boat glides where every other mode stalls.
+           Each technology defines its own cost surface across the landscape, and the paths
+           that emerge from each surface are distinct.</p>
+        <p>Roman roads were engineered for the cart — broad, graded, paved — tolerating no
+           more than about 8–10% grade. Mule tracks wound steeper. Aqueducts demanded
+           near-perfect level. Waterways ignored slope entirely, paying instead in portage at
+           every watershed divide.</p>
+        <p>The parameters are not arbitrary. Pedestrians maintain efficient walking up to
+           about 15–20% grade. Laden mules begin to struggle beyond 25%. Wheeled vehicles
+           on unpaved surfaces rarely manage more than 10%. Below these thresholds, the extra
+           energy cost of climbing is the dominant variable; above them, travel simply stops.
+           These limits hardwired themselves into landscape at every scale.</p>
+        <p>Place two pins and compare all three routes simultaneously. Pedestrian paths cut
+           directly across ridges; mule tracks find compromise; cart and watercraft routes
+           flatten out in valleys and rivers, avoiding steep land entirely.</p>
+        <pre><span class="cm">// Mode-dependent slope sensitivity</span>
+MODES <span class="op">=</span> {
+  pedestrian:      { uphill: 4,  downhill: 2,  maxSlope: 50, shore: 5,  water: 20  },
+  mule:            { uphill: 8,  downhill: 4,  maxSlope: 30, shore: 5,  water: 5   },
+  cart_watercraft: { uphill: 10, downhill: 8,  maxSlope: 15, shore: 30, water: 0.01},
+}
+
+cost <span class="op">=</span> baseDist
+     <span class="op">+</span> mode.uphill   <span class="op">×</span> max(0,  dElev) <span class="op">/</span> UNIT_M
+     <span class="op">+</span> mode.downhill <span class="op">×</span> max(0, -dElev) <span class="op">/</span> UNIT_M
+
+<span class="kw">if</span> isWater[cell]:
+  cost <span class="op">×=</span> mode.water       <span class="cm">// &lt;1 = fast on water, &gt;1 = slow/blocked</span>
+
+<span class="kw">if</span> slope <span class="op">></span> mode.maxSlope:
+  cost <span class="op">=</span> ∞                  <span class="cm">// impassable for this mode</span></pre>
+      </div>
+      <div class="sim-panel">
+        <div style="padding:12px 14px 10px;border-bottom:1px solid var(--border);background:var(--panel);">
+          <div style="font-family:'Segoe UI',system-ui,sans-serif;font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:3px;">Three modes, one landscape</div>
+          <div style="font-size:0.72rem;color:var(--muted);">Place pins A and B. Each mode finds its own optimal route through the same terrain. Toggle modes on and off to isolate their paths.</div>
+        </div>
+        <div class="sim-canvas-wrap sim-clickable">
+          <canvas id="cv3" width="512" height="338"></canvas>
+        </div>
+        <div class="sim-controls">
+          <div class="sim-legend">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="s3-show-ped" checked style="accent-color:#1a5faa;">
+              <span class="legend-blue">— Pedestrian</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="s3-show-mule" checked style="accent-color:#a07800;">
+              <span class="legend-yellow">— Mule</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="s3-show-cart" checked style="accent-color:#c0392b;">
+              <span class="legend-red">— Cart &amp; Watercraft</span>
+            </label>
+            <span id="s3-status" class="sim-hint">Click to place A then B · drag to move</span>
+          </div>
+          <div id="s3-compare" style="font-size:0.68rem;font-family:monospace;display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px 16px;margin-top:2px;"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ── III.4 Intermodal ────────────────────────────────────────────────────── -->
+  <section id="intermodal">
+    <div class="section-num">III.4</div>
+    <div class="section-text">
+      <h2>Intermodal Pathfinding</h2>
+      <p>The cost of switching modes — dock, warehouse, portage — concentrates crossings into natural terminals.</p>
+    </div>
+    <div class="entry-grid">
+      <div class="prose">
+        <p>No single mode dominates every environment. The most efficient journeys in
+           pre-industrial Rome combined boat along the Tiber, cart along the Via Appia, and
+           foot for the last mile into the hills. But changing modes is expensive: cargo must
+           be unloaded, repacked, transferred, and reloaded. Animals must be exchanged.
+           Vessels must find harbour.</p>
+        <p>Each modal transition carries a fixed penalty that represents this friction —
+           the toll of the warehouse, the wait at the dock, the cost of the carter's guild.
+           When that penalty is low, routes fragment into many short modal segments; when
+           high, travellers commit to a single mode for the whole journey even at the cost of
+           efficiency in hostile terrain.</p>
+        <p>The result is spatial concentration: crossings do not distribute evenly along a
+           shoreline but cluster at the few points where the combined cost (transition +
+           approach + departure) is minimised. These clusters are the embryo of a port, a
+           bridge town, a caravanserai. Geography proposes; transaction cost selects.</p>
+        <p>Red cells in the simulation mark where crossings concentrate — watch them sharpen
+           into a handful of persistent terminals as travels accumulate. Lower the shore
+           penalty and watch them dissolve back into the shoreline.</p>
+        <pre><span class="cm">// Intermodal edge cost</span>
+step_cost <span class="op">=</span> straight_distance   <span class="cm">// 1.0 / 1.4 / 2.2</span>
+
+<span class="kw">if</span> both cells are water:
+  step_cost <span class="op">×=</span> waterFactor        <span class="cm">// water travel speed</span>
+<span class="kw">else if</span> both cells are land:
+  step_cost <span class="op">+=</span> uphill   <span class="op">×</span> rise <span class="op">×</span> step_cost
+  step_cost <span class="op">+=</span> downhill <span class="op">×</span> drop <span class="op">×</span> step_cost
+
+<span class="kw">if</span> one cell is land, other is water:
+  step_cost <span class="op">+=</span> shore_penalty       <span class="cm">// cost of switching mode</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ── III.5 Path Dependency ────────────────────────────────────────────────── -->
+  <section id="path-dependency">
+    <div class="section-num">III.5</div>
+    <div class="section-text">
+      <h2>Path Dependency</h2>
+      <p>Use reduces cost. From tracks to roads to corridors — the self-reinforcing emergence of a network.</p>
+    </div>
+    <div class="entry-grid">
+      <div class="prose">
+        <p>A path used once is easier to use again. Vegetation is trampled; the surface
+           compacts; the route becomes known. With investment, a track becomes a road:
+           graded, drained, paved. Each improvement further concentrates traffic, which
+           justifies further improvement. The result is a self-reinforcing network — a small
+           number of dominant corridors emerge from what began as a uniform probability
+           field of possible paths.</p>
+        <p>This is path dependency in its spatial form: the cost of movement through an
+           edge decreases as a function of how many times it has been traversed. The
+           reduction is multiplicative and asymptotic — a well-worn road eventually costs
+           half what a virgin path does for movement, and the transition penalty (boarding a
+           boat, crossing a ford) decays toward zero as a dock or bridge is established.</p>
+        <p>The shape of the decay curve determines whether the network consolidates quickly
+           into a few highways or spreads evenly. The formula used here — 0.5 + 0.5^(tc+1) —
+           reaches 75% of original cost after one use, 63% after two, approaching 50%
+           asymptotically. This matches observed empirical road formation dynamics.</p>
+        <p>The two simulations below run simultaneously with the same parameters and the same
+           random travellers. The left runs without path dependency — pure terrain cost every
+           time. The right accumulates use: edges traversed more often become cheaper, and the
+           network self-organises into corridors. The contrast shows how much of a road
+           network is topography, and how much is accumulated history.</p>
+        <pre><span class="cm">// How path dependency reduces cost over time</span>
+times_used <span class="op">=</span> how many travellers have crossed this edge
+
+reduction_factor <span class="op">=</span> 0.5 <span class="op">+</span> 0.5 ^ (times_used <span class="op">+</span> 1)
+<span class="cm">// times_used = 0  →  factor 1.00  (virgin ground, full cost)</span>
+<span class="cm">// times_used = 1  →  factor 0.75  (worn track)</span>
+<span class="cm">// times_used = 3  →  factor 0.56  (established path)</span>
+<span class="cm">// times_used → ∞  →  factor 0.50  (paved road, half cost)</span>
+
+effective_cost <span class="op">=</span> terrain_cost <span class="op">×</span> reduction_factor
+
+<span class="cm">// Shore crossings also wear in — a ford becomes a bridge:</span>
+shore_cost <span class="op">=</span> shore_penalty <span class="op">×</span> 0.5 ^ times_used</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── III.4 + III.5 Combined simulation ────────────────────────────────────── -->
+  <div class="sim-panel" style="margin-top:32px;">
+    <div style="display:flex;border-bottom:1px solid var(--border);">
+      <div style="flex:1;padding:8px 12px;background:var(--panel);border-right:1px solid var(--border);font-family:'Segoe UI',system-ui,sans-serif;font-size:0.75rem;font-weight:600;color:var(--muted);">Intermodal — no path dependency</div>
+      <div style="flex:1;padding:8px 12px;background:var(--panel);font-family:'Segoe UI',system-ui,sans-serif;font-size:0.75rem;font-weight:600;color:var(--muted);">Path dependency enabled</div>
+    </div>
+    <div style="display:flex;border-bottom:1px solid var(--border);">
+      <div style="flex:1;border-right:1px solid var(--border);">
+        <canvas id="cv4" width="512" height="338" style="display:block;width:100%;height:auto;"></canvas>
+      </div>
+      <div style="flex:1;">
+        <canvas id="cv5" width="512" height="338" style="display:block;width:100%;height:auto;"></canvas>
+      </div>
+    </div>
+    <div class="sim-controls">
+      <div class="sim-row">
+        <span class="sim-label">Uphill ×</span>
+        <input type="range" id="p45-up" min="0" max="100" step="1" value="100">
+        <span class="sim-val" id="p45-up-v">100</span>
+      </div>
+      <div class="sim-row">
+        <span class="sim-label">Downhill ×</span>
+        <input type="range" id="p45-dn" min="0" max="100" step="1" value="50">
+        <span class="sim-val" id="p45-dn-v">50</span>
+      </div>
+      <div class="sim-row">
+        <span class="sim-label">Max slope %</span>
+        <input type="range" id="p45-sl" min="0" max="50" step="1" value="15">
+        <span class="sim-val" id="p45-sl-v">15</span>
+      </div>
+      <div class="sim-row">
+        <span class="sim-label">Shore penalty</span>
+        <input type="range" id="p45-tr" min="0" max="30" step="0.5" value="30">
+        <span class="sim-val" id="p45-tr-v">30</span>
+      </div>
+      <div class="sim-row">
+        <span class="sim-label">Water factor</span>
+        <input type="range" id="p45-wf" min="0.01" max="100" step="0.01" value="0.1">
+        <span class="sim-val" id="p45-wf-v">0.1</span>
+      </div>
+      <div class="sim-row">
+        <span class="sim-label">Travels</span>
+        <input type="number" id="s45-total" value="400" min="1" max="2000" step="50">
+        <span id="s45-count" class="sim-val sim-count">0 / 400</span>
+      </div>
+      <div class="sim-btns">
+        <button id="s45-start">&#9654; Start both</button>
+        <button id="s45-stop" disabled>&#9632; Stop</button>
+        <button id="s45-reset">&#8634; Reset both</button>
+      </div>
+      <div class="sim-stat">
+        Paths found &nbsp;<span id="s4-found">0</span> / <span id="s5-found">0</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="../common/sim-engine.js"></script>
+<script>
+const MODES3 = {
+  pedestrian:      {uphill:40,  downhill:20, waterFactor:20,   transition:5,  maxSlope:50},
+  mule:            {uphill:80,  downhill:40, waterFactor:5,    transition:5,  maxSlope:30},
+  cart_watercraft: {uphill:100, downhill:80, waterFactor:0.01, transition:30, maxSlope:15},
+};
+
+initTerrain('../geo').then(() => {
+
+  // ── III.2 Elevation — dual-path pin display ─────────────────────────────────
+  const s2dist = createSim('cv2', {uphill:0,   downhill:0,  waterFactor:1,   transition:0,  maxSlope:0 });
+  const s2elev = createSim('cv2', {uphill:100, downhill:50, waterFactor:0.1, transition:30, maxSlope:15});
+  s2dist.buildBaseCosts();
+  s2elev.buildBaseCosts();
+
+  const cv2     = document.getElementById('cv2');
+  const ctx2    = cv2.getContext('2d');
+  const p2stat  = document.getElementById('p2-status');
+  let pinA = -1, pinB = -1, nextPin = 'A';
+
+  const p2compare = document.getElementById('p2-compare');
+
+  function s2draw() {
+    paintTerrain(ctx2);
+    if (pinA >= 0 && pinB >= 0) {
+      const pathD = s2dist.findPath(pinA, pinB, false);
+      const pathE = s2elev.findPath(pinA, pinB, false);
+      drawPath(ctx2, pathD, 'rgba(192,57,43,0.9)');    // red = distance
+      drawPath(ctx2, pathE, 'rgba(160,120,0,0.9)');    // yellow = elevation
+      const kmD  = pathD ? (pathD.length * UNIT_M / 1000).toFixed(0) + ' km' : '—';
+      const kmE  = pathE ? (pathE.length * UNIT_M / 1000).toFixed(0) + ' km' : '—';
+      const cstD = pathD ? s2elev.pathCost(pathD).toFixed(1) : '—';
+      const cstE = pathE ? s2elev.pathCost(pathE).toFixed(1) : '—';
+      p2compare.innerHTML =
+        `<span style="color:#c0392b;font-weight:600;">&#9644; Distance path</span>` +
+        `<span style="color:#a07800;font-weight:600;">&#9644; Elevation path</span>` +
+        `<span style="color:var(--muted);">length&nbsp;<span style="color:var(--text)">${kmD}</span> &nbsp;·&nbsp; cost&nbsp;<span style="color:var(--text)">${cstD}</span></span>` +
+        `<span style="color:var(--muted);">length&nbsp;<span style="color:var(--text)">${kmE}</span> &nbsp;·&nbsp; cost&nbsp;<span style="color:var(--text)">${cstE}</span></span>`;
+      p2stat.textContent = '';
+    }
+    drawPin(ctx2, pinA, 'A', '#1a1a1a');
+    drawPin(ctx2, pinB, 'B', '#1a1a1a');
+  }
+
+  paintTerrain(ctx2);
+
+  function _toIdx(e) {
+    const rect = cv2.getBoundingClientRect();
+    const col  = Math.max(0, Math.min(511, Math.round((e.clientX - rect.left) * (512 / rect.width))));
+    const row  = Math.max(0, Math.min(337, Math.round((e.clientY - rect.top)  * (338 / rect.height))));
+    return row * 512 + col;
+  }
+  function _pinDist(e, idx) {
+    if (idx < 0) return Infinity;
+    const rect = cv2.getBoundingClientRect();
+    const px   = rect.left + (idx % 512)           * (rect.width  / 512);
+    const py   = rect.top  + Math.floor(idx / 512) * (rect.height / 338);
+    return Math.hypot(e.clientX - px, e.clientY - py);
+  }
+
+  let dragPin = null, didDrag = false;
+
+  cv2.addEventListener('pointerdown', e => {
+    didDrag = false;
+    const dA = _pinDist(e, pinA), dB = _pinDist(e, pinB);
+    const hit = dA < 14 ? 'A' : dB < 14 ? 'B' : null;
+    if (hit) {
+      dragPin = hit;
+      cv2.setPointerCapture(e.pointerId);
+      cv2.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+  });
+
+  cv2.addEventListener('pointermove', e => {
+    if (!dragPin) {
+      const near = _pinDist(e, pinA) < 14 || _pinDist(e, pinB) < 14;
+      cv2.style.cursor = near ? 'grab' : '';
+      return;
+    }
+    didDrag = true;
+    const idx = _toIdx(e);
+    if (dragPin === 'A') pinA = idx; else pinB = idx;
+    s2draw();
+  });
+
+  cv2.addEventListener('pointerup', e => {
+    if (dragPin) { dragPin = null; cv2.style.cursor = ''; return; }
+    if (didDrag) return;
+    const idx = _toIdx(e);
+    if (nextPin === 'A') { pinA = idx; nextPin = 'B'; p2stat.textContent = 'Pin A placed — click for pin B'; }
+    else                 { pinB = idx; nextPin = 'A'; p2stat.textContent = ''; }
+    s2draw();
+  });
+
+  bindSlider('p2-up', 'p2-up-v', v => { s2elev.P.uphill      = v; s2elev.buildBaseCosts(); s2draw(); });
+  bindSlider('p2-dn', 'p2-dn-v', v => { s2elev.P.downhill    = v; s2elev.buildBaseCosts(); s2draw(); });
+  bindSlider('p2-sl', 'p2-sl-v', v => { s2elev.P.maxSlope    = v; s2elev.buildBaseCosts(); s2draw(); });
+  bindSlider('p2-wf', 'p2-wf-v', v => { s2elev.P.waterFactor = v; s2elev.buildBaseCosts(); s2draw(); });
+  bindSlider('p2-tr', 'p2-tr-v', v => { s2elev.P.transition  = v; s2elev.buildBaseCosts(); s2draw(); });
+
+  // ── III.3 Modes ─────────────────────────────────────────────────────────────
+  const s3ped  = createSim('cv3', {...MODES3.pedestrian});
+  const s3mule = createSim('cv3', {...MODES3.mule});
+  const s3cart = createSim('cv3', {...MODES3.cart_watercraft});
+  s3ped.buildBaseCosts(); s3mule.buildBaseCosts(); s3cart.buildBaseCosts();
+
+  const cv3      = document.getElementById('cv3');
+  const ctx3     = cv3.getContext('2d');
+  const s3stat   = document.getElementById('s3-status');
+  const s3cmp    = document.getElementById('s3-compare');
+  const chkPed   = document.getElementById('s3-show-ped');
+  const chkMule  = document.getElementById('s3-show-mule');
+  const chkCart  = document.getElementById('s3-show-cart');
+  let pin3A = -1, pin3B = -1, next3 = 'A';
+
+  function s3draw() {
+    paintTerrain(ctx3);
+    s3cmp.innerHTML = '';
+    const modes = [
+      { sim: s3ped,  chk: chkPed,  color: 'rgba(26,95,170,0.9)',   label: '<span class="legend-blue">&#9644; Pedestrian</span>',       hdr: '#1a5faa' },
+      { sim: s3mule, chk: chkMule, color: 'rgba(160,120,0,0.9)',   label: '<span class="legend-yellow">&#9644; Mule</span>',            hdr: '#a07800' },
+      { sim: s3cart, chk: chkCart, color: 'rgba(192,57,43,0.9)',   label: '<span class="legend-red">&#9644; Cart &amp; Watercraft</span>', hdr: '#c0392b' },
+    ];
+    if (pin3A >= 0 && pin3B >= 0) {
+      modes.forEach(m => {
+        const path = m.chk.checked ? m.sim.findPath(pin3A, pin3B, false) : null;
+        if (path) drawPath(ctx3, path, m.color);
+        const km  = path ? (path.length * UNIT_M / 1000).toFixed(0) + ' km' : (m.chk.checked ? '—' : 'off');
+        const cst = path ? m.sim.pathCost(path).toFixed(1) : '—';
+        s3cmp.innerHTML +=
+          `<span style="color:var(--muted);">${m.label}<br>` +
+          (m.chk.checked ? `length <span style="color:var(--text)">${km}</span> · cost <span style="color:var(--text)">${cst}</span>` : `<span style="color:var(--light)">hidden</span>`) +
+          `</span>`;
+      });
+      s3stat.textContent = '';
+    }
+    drawPin(ctx3, pin3A, 'A', '#1a1a1a');
+    drawPin(ctx3, pin3B, 'B', '#1a1a1a');
+  }
+
+  paintTerrain(ctx3);
+  [chkPed, chkMule, chkCart].forEach(c => c.addEventListener('change', s3draw));
+
+  // pointer interaction (drag + click-to-place)
+  let drag3 = null, drag3Moved = false;
+  function _toIdx3(e) {
+    const r = cv3.getBoundingClientRect();
+    const x = Math.round((e.clientX - r.left) * cv3.width  / r.width);
+    const y = Math.round((e.clientY - r.top)  * cv3.height / r.height);
+    return Math.max(0, Math.min(511, y)) * 512 + Math.max(0, Math.min(511, x));
+  }
+  function _pinDist3(e, idx) {
+    if (idx < 0) return Infinity;
+    const r = cv3.getBoundingClientRect();
+    const px = (idx % 512) * r.width  / cv3.width  + r.left;
+    const py = Math.floor(idx / 512)  * r.height / cv3.height + r.top;
+    return Math.hypot(e.clientX - px, e.clientY - py);
+  }
+  cv3.addEventListener('pointerdown', e => {
+    drag3Moved = false;
+    if (_pinDist3(e, pin3A) < 14) { drag3 = 'A'; cv3.setPointerCapture(e.pointerId); cv3.style.cursor = 'grabbing'; }
+    else if (_pinDist3(e, pin3B) < 14) { drag3 = 'B'; cv3.setPointerCapture(e.pointerId); cv3.style.cursor = 'grabbing'; }
+  });
+  cv3.addEventListener('pointermove', e => {
+    if (drag3) {
+      drag3Moved = true;
+      if (drag3 === 'A') pin3A = _toIdx3(e); else pin3B = _toIdx3(e);
+      s3draw();
+    } else {
+      const near = _pinDist3(e, pin3A) < 14 || _pinDist3(e, pin3B) < 14;
+      cv3.style.cursor = near ? 'grab' : '';
+    }
+  });
+  cv3.addEventListener('pointerup', e => {
+    if (drag3) { drag3 = null; cv3.style.cursor = ''; return; }
+    if (drag3Moved) return;
+    const idx = _toIdx3(e);
+    if (next3 === 'A') { pin3A = idx; next3 = 'B'; s3stat.textContent = 'Pin A placed — click for pin B'; }
+    else               { pin3B = idx; next3 = 'A'; s3stat.textContent = ''; }
+    s3draw();
+  });
+
+  // ── III.4 + III.5 Combined ──────────────────────────────────────────────────
+  const initP45 = {uphill:100, downhill:50, waterFactor:0.1, transition:30, maxSlope:15};
+  const s4 = createSim('cv4', {...initP45});
+  const s5 = createSim('cv5', {...initP45});
+  s4.buildBaseCosts(); s4.paint();
+  s5.buildBaseCosts(); s5.paint();
+
+  function both45(fn) { fn(s4); fn(s5); }
+  bindSlider('p45-up', 'p45-up-v', v => both45(s => { s.P.uphill      = v; s.buildBaseCosts(); }));
+  bindSlider('p45-dn', 'p45-dn-v', v => both45(s => { s.P.downhill    = v; s.buildBaseCosts(); }));
+  bindSlider('p45-sl', 'p45-sl-v', v => both45(s => { s.P.maxSlope    = v; s.buildBaseCosts(); }));
+  bindSlider('p45-tr', 'p45-tr-v', v => both45(s => { s.P.transition  = v; s.buildBaseCosts(); }));
+  bindSlider('p45-wf', 'p45-wf-v', v => both45(s => { s.P.waterFactor = v; s.buildBaseCosts(); }));
+
+  const btn45Start = document.getElementById('s45-start');
+  const btn45Stop  = document.getElementById('s45-stop');
+  const btn45Reset = document.getElementById('s45-reset');
+  const total45El  = document.getElementById('s45-total');
+  const count45El  = document.getElementById('s45-count');
+  const found4El   = document.getElementById('s4-found');
+  const found5El   = document.getElementById('s5-found');
+  // s4 runs silently — s5 owns the shared UI (count display + buttons)
+  const dummy = document.createElement('span');
+  const dummyBtn = document.createElement('button');
+
+  btn45Start.addEventListener('click', () => {
+    s4.start(total45El, dummy,      found4El, dummyBtn,   dummyBtn,  false);
+    s5.start(total45El, count45El,  found5El, btn45Start, btn45Stop, true);
+  });
+  btn45Stop.addEventListener('click', () => {
+    s4.stop(dummyBtn, dummyBtn);
+    s5.stop(btn45Start, btn45Stop);
+  });
+  btn45Reset.addEventListener('click', () => {
+    s4.reset(total45El, dummy,     found4El, dummyBtn,   dummyBtn);
+    s5.reset(total45El, count45El, found5El, btn45Start, btn45Stop);
+  });
+  total45El.addEventListener('input', () => { count45El.textContent = '0 / ' + total45El.value; });
+
+});
+</script>
+</body>
+</html>
