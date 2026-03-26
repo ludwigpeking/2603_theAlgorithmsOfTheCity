@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(ls -lh /c/Users/qli/Desktop/IT/2603_AlgorithmsCity/1_resources/gw_heightmap*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(git filter-repo:*)"
     ]
   }
 }
