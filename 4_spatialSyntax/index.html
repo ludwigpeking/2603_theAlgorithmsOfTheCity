@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>IV · Spatial Syntax — Algorithms of the City</title>
+<link rel="stylesheet" href="../common/style.css">
+<style>
+/* ── Isochrone tier swatches ── */
+.tier-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.tier-swatch {
+  display: inline-block; width: 14px; height: 14px; border-radius: 2px;
+  vertical-align: middle; border: 1px solid rgba(0,0,0,0.15); flex-shrink: 0;
+}
+.tier-label {
+  font-size: 0.7rem; color: var(--muted);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.tier-label strong { color: var(--text); }
+.iso-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 16px;
+  margin-top: 4px;
+}
+.iso-stat-cell {
+  font-family: monospace; font-size: 0.68rem;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.iso-stat-cell .s-label { color: var(--muted); }
+.iso-stat-cell .s-count { color: var(--text); font-weight: 600; }
+.iso-stat-cell .s-km    { color: var(--light); }
+#hint-msg {
+  font-size: 0.7rem; color: var(--muted); font-style: italic;
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-home" href="../index.html">Algorithms of the City</a>
+  <a class="active" href="index.html">IV · Spatial Syntax</a>
+</nav>
+
+<div class="page-wrap">
+
+  <header class="chapter-header">
+    <h1>IV · Spatial Syntax</h1>
+    <p><i>"The city is not a tree... it is a semi-lattice."</i><br>— Christopher Alexander</p>
+    <p>Space is not experienced in straight lines. Every traveller navigates a landscape of
+       friction — hills, rivers, mud, cliffs — that distorts the geometry of distance into the
+       topology of cost. Accessibility, the true measure of urban proximity, is not how far
+       away a place is but how costly it is to reach.</p>
+  </header>
+
+  <!-- ── IV.1 Isochrone accessibility ────────────────────────────────── -->
+  <section id="isochrone">
+    <div class="section-num">IV.1</div>
+    <div class="section-text">
+      <h2>Isochrone Accessibility</h2>
+      <p>The set of all places reachable within a given travel cost — terrain-aware, mode-dependent.</p>
+    </div>
+
+    <div class="entry-grid">
+      <div class="prose">
+        <p>An <strong>isochrone</strong> is the boundary of everything reachable from a point
+           within a given budget of effort. On flat pavement it is a circle; on terrain it
+           folds and stretches — squeezed by mountains, pulled along valleys, interrupted by
+           water. Where many isochrones overlap, accessibility accumulates: these are the
+           natural centres of a region, the places that gravity has always drawn settlement
+           toward.</p>
+        <p>The shape of an isochrone reveals a mode's personality. A pedestrian's isochrone
+           is large and lumpy — she can scramble over ridges that stop a cart cold. A
+           vehicular isochrone is flatter and more elongated: carts can cover far more ground
+           on level valley floors, but steep slopes and river crossings cut them off entirely.
+           The same point in the landscape offers a completely different world depending on
+           how you move through it.</p>
+        <p>Three cost tiers are shown simultaneously. Each tier adds the new territory opened
+           up as the travel budget grows. The innermost ring (red) is what you can reach with
+           minimal effort — your immediate neighbourhood. The middle ring (ochre) is the
+           wider district. The outer ring (blue) is the regional horizon — everything that
+           is technically reachable but demands real commitment to traverse.</p>
+        <p>Click any point on the map. Toggle between pedestrian and vehicular to see how the
+           same location opens differently to each mode. Natural passes, river fords, and
+           coastal plains light up as the corridors they have always been.</p>
+        <p style="font-size:0.88em;color:var(--muted);border-left:2px solid var(--border);padding-left:12px;margin-top:20px;">
+           The term <em>space syntax</em> and its analytical framework were coined by
+           <strong>Bill Hillier</strong> and <strong>Julienne Hanson</strong> at University
+           College London (UCL) in the 1970s–80s, developed in their foundational work
+           <em>The Social Logic of Space</em> (Cambridge, 1984). The UCL Space Syntax
+           Laboratory continues this research today. The simulation here draws on that
+           tradition — using terrain-weighted travel cost as the measure of spatial
+           integration rather than the topological graph metrics of the original theory.
+        </p>
+
+        <pre><span class="cm">// Full-map Dijkstra: cost from one source to all tiles</span>
+<span class="kw">function</span> <span class="fn">dijkstraFrom</span>(start, mode):
+  dist[all tiles] <span class="op">=</span> ∞
+  dist[start]     <span class="op">=</span> 0
+  frontier <span class="op">=</span> priority_queue {(0, start)}
+
+  <span class="kw">while</span> frontier <span class="op">not</span> empty:
+    (cost_so_far, current) <span class="op">=</span> frontier.<span class="fn">pop_min</span>()
+    <span class="kw">if</span> cost_so_far <span class="op">></span> dist[current]: <span class="kw">skip</span>   <span class="cm">// stale entry</span>
+
+    <span class="kw">for each</span> neighbour <span class="kw">of</span> current:
+      edge <span class="op">=</span> <span class="fn">terrainCost</span>(current, neighbour, mode)
+      new_cost <span class="op">=</span> dist[current] <span class="op">+</span> edge
+      <span class="kw">if</span> new_cost <span class="op">&lt;</span> dist[neighbour]:
+        dist[neighbour] <span class="op">=</span> new_cost
+        frontier.<span class="fn">push</span>(new_cost, neighbour)
+
+  <span class="kw">return</span> dist   <span class="cm">// dist[i] = min travel cost from start to tile i</span>
+
+<span class="cm">// Classify into three tiers</span>
+tier_1 <span class="op">=</span> { i : dist[i] <span class="op">≤</span> <span class="nm">20</span>  }   <span class="cm">// immediate reach  (~4 km flat equivalent)</span>
+tier_2 <span class="op">=</span> { i : dist[i] <span class="op">≤</span> <span class="nm">80</span>  }   <span class="cm">// neighbourhood    (~15 km flat equivalent)</span>
+tier_3 <span class="op">=</span> { i : dist[i] <span class="op">≤</span> <span class="nm">320</span> }   <span class="cm">// regional reach   (~60 km flat equivalent)</span></pre>
+      </div>
+
+      <div class="sim-panel">
+        <!-- header -->
+        <div style="padding:12px 14px 10px;border-bottom:1px solid var(--border);background:var(--panel);">
+          <div style="font-family:'Segoe UI',system-ui,sans-serif;font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:3px;">Click a tile — see what is reachable from there</div>
+          <div style="font-size:0.72rem;color:var(--muted);">
+            Cost thresholds: <strong>20</strong> · <strong>80</strong> · <strong>320</strong>
+            (cell-equivalent units; 1 unit ≈ 188 m on flat ground).
+            Pedestrian tolerates steep slopes; vehicular is faster on flat and water but stopped by cliffs.
+          </div>
+        </div>
+
+        <!-- canvas + SVG pin overlay -->
+        <div class="sim-canvas-wrap sim-clickable" style="position:relative;">
+          <canvas id="cv1" width="512" height="338"></canvas>
+          <svg id="pin-svg"
+               viewBox="0 0 512 338"
+               style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;">
+            <!-- pin injected by JS -->
+          </svg>
+        </div>
+
+        <!-- controls -->
+        <div class="sim-controls">
+
+          <!-- mode toggle -->
+          <div class="sim-row">
+            <span class="sim-label">Mode</span>
+            <div class="preset-row">
+              <button id="btn-ped"               onclick="setMode('pedestrian')">Pedestrian</button>
+              <button id="btn-veh" class="active" onclick="setMode('vehicular')">Vehicular</button>
+            </div>
+          </div>
+
+          <!-- tier legend -->
+          <div class="sim-legend" style="gap:16px;">
+            <span class="tier-row">
+              <span class="tier-swatch" style="background:rgba(192,40,20,0.75)"></span>
+              <span class="tier-label"><strong>Tier 1</strong> — cost ≤ 20</span>
+            </span>
+            <span class="tier-row">
+              <span class="tier-swatch" style="background:rgba(220,130,0,0.70)"></span>
+              <span class="tier-label"><strong>Tier 2</strong> — cost ≤ 80</span>
+            </span>
+            <span class="tier-row">
+              <span class="tier-swatch" style="background:rgba(220,210,0,0.60)"></span>
+              <span class="tier-label"><strong>Tier 3</strong> — cost ≤ 320</span>
+            </span>
+          </div>
+
+          <!-- hint / stats -->
+          <div id="hint-msg">Click anywhere on the map to compute isochrones from that tile.</div>
+          <div class="iso-stats" id="iso-stats" style="display:none;">
+            <div class="iso-stat-cell">
+              <span class="s-label">Tier 1 (≤ 50)</span>
+              <span class="s-count" id="st1-count">—</span>
+              <span class="s-km"    id="st1-km">—</span>
+            </div>
+            <div class="iso-stat-cell">
+              <span class="s-label">Tier 2 (≤ 150)</span>
+              <span class="s-count" id="st2-count">—</span>
+              <span class="s-km"    id="st2-km">—</span>
+            </div>
+            <div class="iso-stat-cell">
+              <span class="s-label">Tier 3 (≤ 450)</span>
+              <span class="s-count" id="st3-count">—</span>
+              <span class="s-km"    id="st3-km">—</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- .page-wrap -->
+
+<script src="../common/sim-engine.js"></script>
+<script>
+'use strict';
+
+// ── Cost thresholds (in sim cost units; 1 unit = one flat cardinal step ≈ 188 m) ──
+const T1 = 20, T2 = 80, T3 = 320;
+const CELL_KM2 = (187.6 * 187.6) / 1e6; // area of one cell in km²
+
+// ── Mode parameters (matching Chapter III presets) ────────────────────────
+const MODES = {
+  pedestrian: { uphill: 40, downhill: 20, waterFactor: 20, transition:  5, maxSlope: 50 },
+  vehicular:  { uphill:100, downhill: 80, waterFactor:  0.01, transition: 30, maxSlope: 15 },
+};
+
+const canvas = document.getElementById('cv1');
+const ctx    = canvas.getContext('2d');
+
+let pedSim, vehSim;
+let activeMode = 'vehicular';
+// Dataset: Map<tileIdx, {ped: Float32Array, veh: Float32Array}>
+// Pre-baked progressively on init; grows with each click-computed tile.
+const dataset = new Map();
+let selectedTile = -1;
+
+// ── Init ──────────────────────────────────────────────────────────────────
+initTerrain('../geo').then(() => {
+  pedSim = createSim('cv1', MODES.pedestrian);
+  pedSim.buildBaseCosts();
+  vehSim = createSim('cv1', MODES.vehicular);
+  vehSim.buildBaseCosts();
+
+  paintTerrain(ctx);
+
+  canvas.addEventListener('click', e => {
+    const rect   = canvas.getBoundingClientRect();
+    const scaleX = COLS / rect.width;
+    const scaleY = ROWS / rect.height;
+    const col = Math.floor((e.clientX - rect.left) * scaleX);
+    const row = Math.floor((e.clientY - rect.top)  * scaleY);
+    if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
+    const idx = row * COLS + col;
+    selectedTile = idx;
+    bakeAndRender(idx);
+  });
+
+  // Background pre-bake: sample a uniform grid so common tiles are ready instantly.
+  // Step = 16 → 32 × 21 = 672 tiles × 2 modes, spread over many frames via rAF.
+  scheduleBake(16);
+});
+
+// ── Mode toggle ───────────────────────────────────────────────────────────
+function setMode(mode) {
+  activeMode = mode;
+  document.getElementById('btn-ped').classList.toggle('active', mode === 'pedestrian');
+  document.getElementById('btn-veh').classList.toggle('active', mode === 'vehicular');
+  if (selectedTile >= 0) render();
+}
+
+// ── Bake one tile into the dataset (both modes) ───────────────────────────
+function bake(idx) {
+  if (dataset.has(idx)) return;
+  dataset.set(idx, {
+    ped: pedSim.dijkstraFrom(idx),
+    veh: vehSim.dijkstraFrom(idx),
+  });
+}
+
+// ── Bake then render the clicked tile ────────────────────────────────────
+function bakeAndRender(idx) {
+  bake(idx);
+  render();
+}
+
+// ── Background pre-bake for a uniform grid sample ────────────────────────
+// Generates tile indices on a regular step-grid, then bakes one per rAF frame.
+// Baking is skipped on frames where the user has recently clicked (to stay
+// responsive): we yield to the event loop via requestAnimationFrame.
+function scheduleBake(step) {
+  const queue = [];
+  for (let row = 0; row < ROWS; row += step)
+    for (let col = 0; col < COLS; col += step)
+      queue.push(row * COLS + col);
+
+  let qi = 0;
+  function tick() {
+    if (qi >= queue.length) return;                  // all done
+    const idx = queue[qi++];
+    if (!dataset.has(idx)) bake(idx);               // ~10–30 ms per tile
+    requestAnimationFrame(tick);                     // yield between tiles
+  }
+  requestAnimationFrame(tick);
+}
+
+// ── Render isochrone overlay from dataset ─────────────────────────────────
+function render() {
+  const entry = dataset.get(selectedTile);
+  if (!entry) return;
+  const distArr = activeMode === 'pedestrian' ? entry.ped : entry.veh;
+
+  // 1. Base terrain
+  paintTerrain(ctx);
+
+  // 2. Single-pass tier colour blend
+  const img  = ctx.getImageData(0, 0, COLS, ROWS);
+  const data = img.data;
+  for (let i = 0; i < N; i++) {
+    if (isWater[i]) continue;                          // no colour on water
+    const d = distArr[i];
+    if (!isFinite(d) || d > T3) continue;
+    let r, g, b, a;
+    if      (d <= T1) { r=192; g= 40; b= 20; a=0.75; }  // tier 1 — red
+    else if (d <= T2) { r=220; g=130; b=  0; a=0.70; }  // tier 2 — orange
+    else              { r=220; g=210; b=  0; a=0.60; }  // tier 3 — yellow
+    const bi = i * 4;
+    data[bi]   = Math.round(data[bi]   * (1-a) + r*a);
+    data[bi+1] = Math.round(data[bi+1] * (1-a) + g*a);
+    data[bi+2] = Math.round(data[bi+2] * (1-a) + b*a);
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // 3. Vector pin on the SVG overlay (crisp at any display size)
+  drawSvgPin(selectedTile);
+
+  // 4. Stats
+  updateStats(distArr);
+}
+
+// ── SVG pin ───────────────────────────────────────────────────────────────
+// Draws a crisp vector location marker on the SVG overlay.
+// The SVG shares the same viewBox (512×338) as the canvas, so coordinates
+// map 1-to-1, but SVG renders as vectors at full display resolution.
+const pinSvg = document.getElementById('pin-svg');
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function drawSvgPin(idx) {
+  // Clear previous
+  while (pinSvg.firstChild) pinSvg.removeChild(pinSvg.firstChild);
+  if (idx < 0) return;
+
+  const cx = (idx % COLS) + 0.5;
+  const cy = Math.floor(idx / COLS) + 0.5;
+
+  // Pin geometry (in viewBox units):
+  //   - circle radius r = 5, centre at (0, -r-3) above the point tip at (0,0)
+  //   - tangent lines from (0,0) meet the circle at ±40°
+  // Pre-computed tangent points for r=5, half-angle 40°:
+  //   tx = sin(40°)*5 ≈ 3.21,  ty = -(1 - cos(40°))*5 ≈ -1.17  (relative to circle centre)
+  //   abs ty = circle_cy + ty = -8 + (-1.17) = wait, let me redo.
+  // Circle centre: (0, -8). r=5. Tangent from (0,0):
+  //   distance from (0,0) to centre = 8.
+  //   sin(half-angle) = r / dist = 5/8 → half-angle ≈ 38.7°
+  //   tangent length = sqrt(8²-5²) = sqrt(39) ≈ 6.24
+  //   tangent point: centre + r * perpendicular-to-line-from-origin
+  //   → tx = ±(5/8)*6.24 ≈ ±3.90,  ty_from_centre = -(6.24/8)*5 ≈ -3.90 → abs = -8+(-3.90)...
+  // Simpler: just use a cubic-bezier teardrop that looks right.
+  const r = 5, pin_cy = -9; // circle centre offset from tip
+
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('transform', `translate(${cx},${cy})`);
+
+  // Drop shadow
+  const shadow = document.createElementNS(SVG_NS, 'ellipse');
+  shadow.setAttribute('cx', '0.5'); shadow.setAttribute('cy', '1.5');
+  shadow.setAttribute('rx', '4');   shadow.setAttribute('ry', '1.5');
+  shadow.setAttribute('fill', 'rgba(0,0,0,0.22)');
+  g.appendChild(shadow);
+
+  // Pin body: teardrop — tip at (0,0), bulge centred at (0, pin_cy), radius r
+  // Two symmetric cubic beziers from tip to top, then back.
+  const body = document.createElementNS(SVG_NS, 'path');
+  const top = pin_cy - r;  // topmost point = -14
+  const d = `M 0,0 C -${r},-2 -${r},${top+2} 0,${top} C ${r},${top+2} ${r},-2 0,0 Z`;
+  body.setAttribute('d', d);
+  body.setAttribute('fill', '#1a1a1a');
+  body.setAttribute('stroke', 'white');
+  body.setAttribute('stroke-width', '1');
+  body.setAttribute('stroke-linejoin', 'round');
+  g.appendChild(body);
+
+  // Inner highlight dot
+  const dot = document.createElementNS(SVG_NS, 'circle');
+  dot.setAttribute('cx', '0');
+  dot.setAttribute('cy', String(pin_cy));
+  dot.setAttribute('r', '2');
+  dot.setAttribute('fill', 'white');
+  dot.setAttribute('opacity', '0.85');
+  g.appendChild(dot);
+
+  pinSvg.appendChild(g);
+}
+
+// ── Stats panel ───────────────────────────────────────────────────────────
+function updateStats(distArr) {
+  let c1 = 0, c2 = 0, c3 = 0;
+  for (let i = 0; i < N; i++) {
+    const d = distArr[i];
+    if      (d <= T1) c1++;
+    else if (d <= T2) c2++;
+    else if (d <= T3) c3++;
+  }
+  const fmt = n => n.toLocaleString();
+  const km  = n => (n * CELL_KM2).toFixed(0) + ' km²';
+  document.getElementById('st1-count').textContent = fmt(c1)         + ' tiles';
+  document.getElementById('st2-count').textContent = fmt(c1+c2)      + ' tiles';
+  document.getElementById('st3-count').textContent = fmt(c1+c2+c3)   + ' tiles';
+  document.getElementById('st1-km').textContent    = km(c1);
+  document.getElementById('st2-km').textContent    = km(c1+c2);
+  document.getElementById('st3-km').textContent    = km(c1+c2+c3);
+  document.getElementById('hint-msg').style.display  = 'none';
+  document.getElementById('iso-stats').style.display = 'grid';
+}
+</script>
+</body>
+</html>

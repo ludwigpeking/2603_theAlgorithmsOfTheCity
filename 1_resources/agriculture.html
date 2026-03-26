@@ -2,213 +2,202 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Great Wall — Agriculture Density</title>
+<title>I.1 · Agriculture Density — Algorithms of the City</title>
+<link rel="stylesheet" href="../common/viewer.css">
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #f4f0eb; overflow: hidden;
-       font-family: 'Segoe UI', system-ui, sans-serif; }
-canvas { display: block; }
+/* ── Side-by-side layout: canvas left, sidebar right ── */
+body { display:flex; flex-direction:row; height:100vh; overflow:hidden; }
 
-/* ── left control panel ─────────────────────────────────────────────────── */
-#ui {
-  position: fixed; top: 16px; left: 16px;
-  background: rgba(255,253,250,0.94); backdrop-filter: blur(10px);
-  border: 1px solid #d0cbc2; border-radius: 10px;
-  padding: 16px 18px; color: #2a2520; font-size: 0.8rem;
-  display: flex; flex-direction: column; gap: 10px; min-width: 252px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
-}
-#ui h2 { font-size: 0.92rem; color: #1a1510; font-weight: 600; }
-#ui p  { font-size: 0.7rem; color: #7a7068; margin-top: 1px; }
-.section {
-  font-size: 0.72rem; color: #1a5faa; font-weight: 600;
-  border-top: 1px solid #e0dbd4; padding-top: 8px;
-}
-.ctrl  { display: flex; align-items: center; gap: 8px; }
-.ctrl label { flex: 0 0 100px; color: #6a6058; font-size: 0.73rem; }
-.ctrl input[type=range] { flex: 1; accent-color: #1a5faa; cursor: pointer; }
-.ctrl input[type=checkbox] {
-  accent-color: #1a5faa; cursor: pointer; width:14px; height:14px;
-}
-.ctrl select {
-  flex: 1; background: #f4f0eb; color: #2a2520;
-  border: 1px solid #d0cbc2; border-radius: 4px;
-  padding: 2px 4px; font-size: 0.73rem; cursor: pointer;
-}
-.val { color: #1a5faa; font-size: 0.73rem; min-width: 42px; text-align: right; }
-.note { font-size: 0.68rem; color: #9a9088; line-height: 1.4; }
-
-/* ── right legend ───────────────────────────────────────────────────────── */
-#legend {
-  position: fixed; top: 16px; right: 16px;
-  background: rgba(255,253,250,0.94); backdrop-filter: blur(10px);
-  border: 1px solid #d0cbc2; border-radius: 10px;
-  padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
-  font-size: 0.7rem; box-shadow: 0 2px 12px rgba(0,0,0,0.10);
-}
-#legend-title { color: #6a6058; margin-bottom: 4px; font-size: 0.72rem; font-weight: 600; }
-.leg-row { display: flex; align-items: center; gap: 8px; color: #6a6058; }
-.leg-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
-#legend-agri .leg-swatch { height: 8px; border-radius: 2px; }
-
-/* ── bottom tooltip ─────────────────────────────────────────────────────── */
-#tooltip {
-  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-  background: rgba(255,253,250,0.94); border: 1px solid #d0cbc2; border-radius: 6px;
-  padding: 6px 16px; color: #6a6058; font-size: 0.75rem;
-  pointer-events: none; white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+#canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
 }
 
-/* ── loading overlay ────────────────────────────────────────────────────── */
-#loading {
-  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: #f4f0eb; color: #7a7068; font-size: 0.9rem;
-  flex-direction: column; gap: 14px; z-index: 100;
+#sidebar {
+  width: 272px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: rgba(255,253,250,0.97);
+  border-left: 1px solid #d0cbc2;
+  display: flex;
+  flex-direction: column;
 }
-#loading-msg { font-size: 0.82rem; color: #5a5048; }
-.spinner {
-  width: 36px; height: 36px; border: 3px solid #e0dbd4;
-  border-top-color: #1a5faa; border-radius: 50%;
-  animation: spin 0.75s linear infinite;
+
+/* Override viewer.css fixed positioning — panel is now in sidebar flow */
+.viewer-panel {
+  position: relative !important;
+  top: auto !important; left: auto !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-bottom: 1px solid #e0dbd4 !important;
+  box-shadow: none !important;
+  max-height: none !important;
+  backdrop-filter: none !important;
+  background: transparent !important;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
+.viewer-legend {
+  position: relative !important;
+  top: auto !important; right: auto !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  background: transparent !important;
+  padding: 14px 18px;
+}
+/* Loading overlay fills the canvas-wrap */
+.viewer-loading { position: absolute !important; }
+/* Tooltip anchored inside canvas-wrap */
+.viewer-tooltip { position: absolute !important; }
+/* Back link hidden inside iframe */
+.viewer-back { display: none !important; }
 </style>
 </head>
 <body>
 
-<div id="loading">
-  <div class="spinner"></div>
-  <span id="loading-msg">Loading terrain…</span>
-</div>
-<canvas id="canvas"></canvas>
-
-<!-- left UI panel -->
-<div id="ui" style="display:none">
-  <div>
-    <h2>Great Wall — Agriculture Density</h2>
-    <p id="meta-label">greatWall.tif · DTM · EPSG:4326</p>
+<!-- ── canvas area (left) ── -->
+<div id="canvas-wrap">
+  <div id="loading" class="viewer-loading">
+    <div class="viewer-spinner"></div>
+    <span id="loading-msg" class="viewer-loading-msg">Loading terrain…</span>
   </div>
-
-  <div class="section">Terrain View</div>
-  <div class="ctrl">
-    <label>Exaggeration</label>
-    <input type="range" id="exag" min="1" max="30" value="5" step="0.5">
-    <span class="val" id="exag-val">5×</span>
-  </div>
-  <div class="ctrl">
-    <label>View</label>
-    <select id="view-mode">
-      <option value="terrain">Terrain colour</option>
-      <option value="agri" selected>Agriculture density</option>
-      <option value="streams">Debug: stream lines</option>
-    </select>
-  </div>
-  <div class="ctrl">
-    <label>Wireframe</label>
-    <input type="checkbox" id="wire">
-  </div>
-
-  <div class="section">Agriculture Model</div>
-  <div class="ctrl">
-    <label>Lat. reduction</label>
-    <input type="range" id="lat-reduce" min="0" max="25" value="6" step="0.5">
-    <span class="val" id="lat-reduce-val">6 %/°</span>
-  </div>
-  <div class="ctrl">
-    <label>Elev. reduction</label>
-    <input type="range" id="elev-reduce" min="0" max="10" value="6" step="0.25">
-    <span class="val" id="elev-reduce-val">6 %/100m</span>
-  </div>
-  <p class="note">
-    Good farmland: slope 0.1 – 10 %.<br>
-    Score reduced per degree latitude above south edge,<br>
-    and per 100 m of elevation above sea level.
-  </p>
-
-  <div class="section" id="stream-section" style="display:none">Stream lines (debug)</div>
-  <div class="ctrl" id="stream-ctrl" style="display:none">
-    <label>Min accum.</label>
-    <input type="range" id="stream-thresh" min="0" max="1" value="0.35" step="0.01">
-    <span class="val" id="stream-thresh-val">0.35</span>
-  </div>
-  <p class="note" id="stream-note" style="display:none">
-    D8 lines follow actual flow direction.<br>
-    0 = all cells, 1 = trunk only (log scale).
-  </p>
-
-  <div class="section">Tribe Simulation</div>
-  <div class="ctrl">
-    <label>Control</label>
-    <button id="sim-btn" style="flex:1;padding:3px 8px;cursor:pointer;background:#1a5faa;color:#fff;border:none;border-radius:4px;font-size:0.75rem;">&#9654; Run</button>
-    <button id="sim-reset" style="padding:3px 8px;cursor:pointer;background:#e0dbd4;color:#2a2520;border:1px solid #c0bbb4;border-radius:4px;font-size:0.75rem;">Reset</button>
-  </div>
-  <div class="ctrl">
-    <label>Speed</label>
-    <input type="range" id="sim-speed" min="1" max="20" value="1" step="1">
-    <span class="val" id="sim-speed-val">1×</span>
-  </div>
-  <p class="note" id="sim-stats">50 tribes placed · paused</p>
-  <p class="note" style="color:#888">&#9679; blue = stable &nbsp; &#9679; red = shortage</p>
-  <div class="ctrl">
-    <label>Harvest radius</label>
-    <input type="range" id="sim-radius" min="5" max="80" value="20" step="1">
-    <span class="val" id="sim-radius-val">20 km</span>
-  </div>
-  <div class="ctrl">
-    <label>Replenish rate</label>
-    <input type="range" id="sim-replenish" min="2" max="30" value="6" step="1">
-    <span class="val" id="sim-replenish-val">1/6 /fr</span>
-  </div>
-  <div class="ctrl">
-    <label>Growth rate</label>
-    <input type="range" id="sim-growth" min="0.1" max="5" value="5" step="0.1">
-    <span class="val" id="sim-growth-val">5 %/fr</span>
-  </div>
-  <div class="ctrl">
-    <label>Starvation</label>
-    <input type="range" id="sim-starve" min="0.5" max="20" value="20" step="0.5">
-    <span class="val" id="sim-starve-val">20 %/fr</span>
-  </div>
-  <div class="ctrl">
-    <label>Nomadic %</label>
-    <input type="range" id="sim-mobile" min="0" max="100" value="30" step="1">
-    <span class="val" id="sim-mobile-val">30 %</span>
-  </div>
+  <canvas id="canvas"></canvas>
+  <div id="tooltip" class="viewer-tooltip">Hover over terrain</div>
 </div>
 
-<!-- right legend -->
-<div id="legend" style="display:none">
-  <!-- terrain legend (shown when view = terrain) -->
-  <div id="legend-terrain">
-    <div id="legend-title">Elevation</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(232,228,224)"></div>&gt; 4500 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(148,128,108)"></div>3000 – 4500 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(132,102,48)"></div>1900 – 3000 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(152,138,68)"></div>1200 – 1900 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(115,158,62)"></div>650 – 1200 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(135,182,88)"></div>280 – 650 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(182,208,122)"></div>80 – 280 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(218,212,152)"></div>0 – 80 m</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(75,148,210)"></div>Lakes / rivers</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(25,105,190)"></div>Sea</div>
-  </div>
-  <!-- agriculture legend (shown when view = agri) -->
-  <div id="legend-agri" style="display:none">
-    <div id="legend-title">Agriculture score</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(41,122,22)"></div>High  (1.0)</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(140,191,71)"></div>Good  (0.6)</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(222,214,130)"></div>Marginal (0.25)</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(194,184,163)"></div>Poor / steep</div>
-    <div class="leg-row"><div class="leg-swatch" style="background:rgb(56,120,199)"></div>Water</div>
-  </div>
-</div>
+<!-- ── sidebar (right) ── -->
+<div id="sidebar">
 
-<div id="tooltip">Hover over terrain</div>
+  <div id="ui" class="viewer-panel" style="display:none">
+    <div>
+      <h2>Great Wall — Agriculture Density</h2>
+      <p id="meta-label">greatWall.tif · DTM · EPSG:4326</p>
+    </div>
+
+    <div class="viewer-section">Terrain View</div>
+    <div class="viewer-ctrl">
+      <label>Exaggeration</label>
+      <input type="range" id="exag" min="1" max="30" value="5" step="0.5">
+      <span class="viewer-val" id="exag-val">5×</span>
+    </div>
+    <div class="viewer-ctrl">
+      <label>View</label>
+      <select id="view-mode">
+        <option value="terrain">Terrain colour</option>
+        <option value="agri" selected>Agriculture density</option>
+        <option value="streams">Debug: stream lines</option>
+      </select>
+    </div>
+    <div class="viewer-ctrl">
+      <label>Wireframe</label>
+      <input type="checkbox" id="wire">
+    </div>
+
+    <div class="viewer-section">Agriculture Model</div>
+    <div class="viewer-ctrl">
+      <label>Lat. reduction</label>
+      <input type="range" id="lat-reduce" min="0" max="25" value="6" step="0.5">
+      <span class="viewer-val" id="lat-reduce-val">6 %/°</span>
+    </div>
+    <div class="viewer-ctrl">
+      <label>Elev. reduction</label>
+      <input type="range" id="elev-reduce" min="0" max="10" value="6" step="0.25">
+      <span class="viewer-val" id="elev-reduce-val">6 %/100m</span>
+    </div>
+    <p class="viewer-note">
+      Good farmland: slope 0.1 – 10 %.<br>
+      Score reduced per degree latitude above south edge,<br>
+      and per 100 m of elevation above sea level.
+    </p>
+
+    <div class="viewer-section" id="stream-section" style="display:none">Stream lines (debug)</div>
+    <div class="viewer-ctrl" id="stream-ctrl" style="display:none">
+      <label>Min accum.</label>
+      <input type="range" id="stream-thresh" min="0" max="1" value="0.35" step="0.01">
+      <span class="viewer-val" id="stream-thresh-val">0.35</span>
+    </div>
+    <p class="viewer-note" id="stream-note" style="display:none">
+      D8 lines follow actual flow direction.<br>
+      0 = all cells, 1 = trunk only (log scale).
+    </p>
+
+    <div class="viewer-section">Tribe Simulation</div>
+    <div class="viewer-ctrl">
+      <label>Control</label>
+      <button id="sim-btn" style="flex:1;padding:3px 8px;cursor:pointer;background:#1a5faa;color:#fff;border:none;border-radius:4px;font-size:0.75rem;">&#9654; Run</button>
+      <button id="sim-reset" style="padding:3px 8px;cursor:pointer;background:#e0dbd4;color:#2a2520;border:1px solid #c0bbb4;border-radius:4px;font-size:0.75rem;">Reset</button>
+    </div>
+    <div class="viewer-ctrl">
+      <label>Speed</label>
+      <input type="range" id="sim-speed" min="1" max="20" value="1" step="1">
+      <span class="viewer-val" id="sim-speed-val">1×</span>
+    </div>
+    <p class="viewer-note" id="sim-stats">50 tribes placed · paused</p>
+    <canvas id="tribe-chart" width="236" height="64"
+            style="display:block;margin:4px 0 2px;border:1px solid #e0dbd4;border-radius:3px;background:#faf8f5;"></canvas>
+    <p class="viewer-note" style="color:#888">&#9679; blue = stable &nbsp; &#9679; red = shortage</p>
+    <div class="viewer-ctrl">
+      <label>Harvest radius</label>
+      <input type="range" id="sim-radius" min="5" max="80" value="20" step="1">
+      <span class="viewer-val" id="sim-radius-val">20 km</span>
+    </div>
+    <div class="viewer-ctrl">
+      <label>Replenish rate</label>
+      <input type="range" id="sim-replenish" min="2" max="30" value="6" step="1">
+      <span class="viewer-val" id="sim-replenish-val">1/6 /fr</span>
+    </div>
+    <div class="viewer-ctrl">
+      <label>Growth rate</label>
+      <input type="range" id="sim-growth" min="0.1" max="5" value="5" step="0.1">
+      <span class="viewer-val" id="sim-growth-val">5 %/fr</span>
+    </div>
+    <div class="viewer-ctrl">
+      <label>Starvation</label>
+      <input type="range" id="sim-starve" min="0.5" max="20" value="20" step="0.5">
+      <span class="viewer-val" id="sim-starve-val">20 %/fr</span>
+    </div>
+    <div class="viewer-ctrl">
+      <label>Nomadic %</label>
+      <input type="range" id="sim-mobile" min="0" max="100" value="30" step="1">
+      <span class="viewer-val" id="sim-mobile-val">30 %</span>
+    </div>
+  </div>
+
+  <!-- legend lives below the controls in the sidebar -->
+  <div id="legend" class="viewer-legend" style="display:none">
+    <div id="legend-terrain">
+      <div class="viewer-legend-title">Elevation</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(232,228,224)"></div>&gt; 4500 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(148,128,108)"></div>3000 – 4500 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(132,102,48)"></div>1900 – 3000 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(152,138,68)"></div>1200 – 1900 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(115,158,62)"></div>650 – 1200 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(135,182,88)"></div>280 – 650 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(182,208,122)"></div>80 – 280 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(218,212,152)"></div>0 – 80 m</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(75,148,210)"></div>Lakes / rivers</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(25,105,190)"></div>Sea</div>
+    </div>
+    <div id="legend-agri" style="display:none">
+      <div class="viewer-legend-title">Agriculture score</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(41,122,22)"></div>High  (1.0)</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(140,191,71)"></div>Good  (0.6)</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(222,214,130)"></div>Marginal (0.25)</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(194,184,163)"></div>Poor / steep</div>
+      <div class="viewer-leg-row"><div class="viewer-leg-swatch" style="background:rgb(56,120,199)"></div>Water</div>
+    </div>
+  </div>
+
+</div><!-- /sidebar -->
+
+<a class="viewer-back" href="index.html">&#8592; I · Resource Distribution</a>
 
 <script type="module">
 import * as THREE from 'https://esm.sh/three@0.169';
 import { OrbitControls } from 'https://esm.sh/three@0.169/examples/jsm/controls/OrbitControls.js';
+
+const canvasWrap = document.getElementById('canvas-wrap');
 
 // ── Load metadata ─────────────────────────────────────────────────────────────
 const setMsg = t => { document.getElementById('loading-msg').textContent = t; };
@@ -234,14 +223,9 @@ const UNIT_M = meta.unit_m;
 const BOUNDS = meta.bounds;   // { west, east, south, north }
 
 // ── Mesh resolution ───────────────────────────────────────────────────────────
-// The full data grid is 1524×1080 = 3.3M triangles — too heavy for real-time.
-// We build the Three.js geometry at every STEP-th pixel (≈ rome3d.html scale).
-// All data arrays (elevData, slopeScore, isWater) remain at full COLS×ROWS so
-// hover tooltips and slope computation stay accurate.
 const STEP  = 3;
-const MCOLS = Math.floor((COLS - 1) / STEP) + 1;   // mesh grid width
-const MROWS = Math.floor((ROWS - 1) / STEP) + 1;   // mesh grid height
-// Helper: mesh vertex (mr, mc) → nearest data index
+const MCOLS = Math.floor((COLS - 1) / STEP) + 1;
+const MROWS = Math.floor((ROWS - 1) / STEP) + 1;
 function mIdx(mr, mc) {
   const dr = Math.min(mr * STEP, ROWS - 1);
   const dc = Math.min(mc * STEP, COLS - 1);
@@ -275,39 +259,32 @@ const [hPx, cPx, dPx, fPx, aPx] = await Promise.all([
 ]);
 
 // ── Decode elevation + water mask ─────────────────────────────────────────────
-// Heightmap uses 16-bit encoding: R = high byte, G = low byte (R*256 + G).
-// This avoids the ~12 m banding that 8-bit grayscale would produce.
 const elevData = new Float32Array(COLS * ROWS);
 for (let i = 0; i < COLS * ROWS; i++) {
   const uint16 = hPx[i*4] * 256 + hPx[i*4+1];
   elevData[i] = (uint16 / 65535) * (MAX_E - MIN_E) + MIN_E;
 }
 
-// Blue-dominant pixels are water (sea, rivers, lakes)
 const isWater = new Uint8Array(COLS * ROWS);
 for (let i = 0; i < COLS * ROWS; i++) {
   const r = cPx[i*4], b = cPx[i*4+2];
   if (b > r + 45 && b > 160) isWater[i] = 1;
 }
 
-// ── D8 flow direction (grayscale PNG: 0-7 = direction, 255 = outlet/nodata) ──
+// ── D8 flow direction ──────────────────────────────────────────────────────────
 const flowDir = new Uint8Array(COLS * ROWS);
-for (let i = 0; i < COLS * ROWS; i++) flowDir[i] = fPx[i*4];  // R = grayscale value
+for (let i = 0; i < COLS * ROWS; i++) flowDir[i] = fPx[i*4];
 
-// ── Log-normalised accumulation (RG 16-bit) ───────────────────────────────────
+// ── Log-normalised accumulation ───────────────────────────────────────────────
 const LOG_ACCUM_MAX = meta.log_accum_max;
 const accumNorm = new Float32Array(COLS * ROWS);
 for (let i = 0; i < COLS * ROWS; i++)
-  accumNorm[i] = (aPx[i*4] * 256 + aPx[i*4+1]) / 65535;  // 0..1 on log scale
+  accumNorm[i] = (aPx[i*4] * 256 + aPx[i*4+1]) / 65535;
 
-// D8 neighbour offsets (same order as Python DR/DC arrays)
 const D8R = [-1,-1, 0, 1, 1, 1, 0,-1];
 const D8C = [ 0, 1, 1, 1, 0,-1,-1,-1];
 
 // ── Precompute slope score per cell ───────────────────────────────────────────
-// slope % = |Δelev_m| / (dist_cells × unit_m) × 100
-// Good farmland: 0.1 % ≤ slope ≤ 10 %
-// < 0.1 %: too flat (poor drainage); > 10 %: falloff to 0 at 50 %
 setMsg('Computing slope scores…');
 const DIRS8 = [
   [-1, 0, 1], [1, 0, 1], [0, -1, 1], [0, 1, 1],
@@ -318,7 +295,7 @@ const slopeScore = new Float32Array(COLS * ROWS);
 for (let row = 0; row < ROWS; row++) {
   for (let col = 0; col < COLS; col++) {
     const i = row * COLS + col;
-    if (isWater[i]) continue;   // leave at 0
+    if (isWater[i]) continue;
 
     let maxS = 0;
     const eCur = elevData[i];
@@ -330,23 +307,21 @@ for (let row = 0; row < ROWS; row++) {
     }
 
     if (maxS < 0.1) {
-      slopeScore[i] = 0;                                  // too flat
+      slopeScore[i] = 0;
     } else if (maxS <= 10) {
-      slopeScore[i] = 1.0;                                // optimal
+      slopeScore[i] = 1.0;
     } else if (maxS <= 50) {
-      slopeScore[i] = 1 - (maxS - 10) / 40;              // linear falloff
+      slopeScore[i] = 1 - (maxS - 10) / 40;
     }
-    // else remains 0
   }
 }
 
 // ── Agriculture colour gradient ───────────────────────────────────────────────
-// score 0 (land) → sandy beige; score 1 → rich green
 const AGRI_GRAD = [
-  [0.00, [0.760, 0.720, 0.640]],  // poor / too steep or too flat
-  [0.20, [0.870, 0.838, 0.505]],  // marginal — pale straw
-  [0.55, [0.550, 0.748, 0.278]],  // good    — light green
-  [1.00, [0.160, 0.478, 0.086]],  // excellent — rich green
+  [0.00, [0.760, 0.720, 0.640]],
+  [0.20, [0.870, 0.838, 0.505]],
+  [0.55, [0.550, 0.748, 0.278]],
+  [1.00, [0.160, 0.478, 0.086]],
 ];
 
 function agriColorAt(s) {
@@ -361,9 +336,7 @@ function agriColorAt(s) {
   return AGRI_GRAD[AGRI_GRAD.length-1][1];
 }
 
-// ── Build colour buffers (mesh resolution only) ───────────────────────────────
-// Colours are only needed per mesh vertex (MCOLS×MROWS), not per data pixel.
-// Hover scores are computed on-the-fly from the full-res data arrays.
+// ── Build colour buffers ──────────────────────────────────────────────────────
 const meshColTerrain = new Float32Array(MCOLS * MROWS * 3);
 const meshColAgri    = new Float32Array(MCOLS * MROWS * 3);
 const meshColStreams  = new Float32Array(MCOLS * MROWS * 3);
@@ -383,14 +356,6 @@ for (let mr = 0; mr < MROWS; mr++) {
   }
 }
 
-// ── Precompute max log-normalised accumulation per mesh vertex ─────────────────
-// Each mesh vertex covers STEP×STEP data cells. A 1-pixel-wide river is missed
-// ~⅔ of the time by the stride-3 sampler.  Taking the neighbourhood max ensures
-// any stream that falls anywhere near the vertex is captured — same data source
-// as the D8 line debug, so terrain and agri colours match the 3D lines exactly.
-// ±1 neighbourhood (3×3 window) gives 1-mesh-vertex-wide rivers while still
-// catching 1-pixel-wide streams that might land anywhere within the STEP stride.
-// Sea cells (elevData < 0) are excluded so rivers never bleed into open ocean.
 const meshAccumNorm = new Float32Array(MCOLS * MROWS);
 for (let mr = 0; mr < MROWS; mr++) {
   for (let mc = 0; mc < MCOLS; mc++) {
@@ -400,7 +365,7 @@ for (let mr = 0; mr < MROWS; mr++) {
       for (let dc = -1; dc <= 1; dc++) {
         const c = Math.max(0, Math.min(COLS - 1, mc * STEP + dc));
         const idx = r * COLS + c;
-        if (elevData[idx] < 0) continue;   // skip sea cells
+        if (elevData[idx] < 0) continue;
         const n = accumNorm[idx];
         if (n > best) best = n;
       }
@@ -409,12 +374,11 @@ for (let mr = 0; mr < MROWS; mr++) {
   }
 }
 
-// River colour tiers in accumNorm space (log-normalised, matched to Python km² thresholds)
 const RIVER_COL_TIERS = [
-  [0.61, [0.43, 0.69, 0.88]],  // minor  ~1 000 km²
-  [0.73, [0.22, 0.51, 0.82]],  // medium ~5 000 km²
-  [0.83, [0.08, 0.36, 0.73]],  // main  ~20 000 km²
-  [0.93, [0.03, 0.22, 0.60]],  // major ~80 000 km²
+  [0.61, [0.43, 0.69, 0.88]],
+  [0.73, [0.22, 0.51, 0.82]],
+  [0.83, [0.08, 0.36, 0.73]],
+  [0.93, [0.03, 0.22, 0.60]],
 ];
 
 function applyRiverColors(buf) {
@@ -428,7 +392,7 @@ function applyRiverColors(buf) {
   }
 }
 
-applyRiverColors(meshColTerrain);  // bake rivers into terrain colour once
+applyRiverColors(meshColTerrain);
 
 function buildAgriColors(latReduce, elevReduce) {
   for (let mr = 0; mr < MROWS; mr++) {
@@ -451,25 +415,24 @@ function buildAgriColors(latReduce, elevReduce) {
       meshColAgri[mi*3] = r; meshColAgri[mi*3+1] = g; meshColAgri[mi*3+2] = b;
     }
   }
-  applyRiverColors(meshColAgri);  // overlay rivers on top of agriculture scores
+  applyRiverColors(meshColAgri);
 }
 
 setMsg('Building scene…');
-buildAgriColors(6, 6);   // initial values matching slider defaults
+buildAgriColors(6, 6);
 
 // ── Renderer / scene / camera ─────────────────────────────────────────────────
 const canvas   = document.getElementById('canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(canvasWrap.clientWidth, canvasWrap.clientHeight);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xd8e8f4);   // soft daylight sky
+scene.background = new THREE.Color(0xd8e8f4);
 const haze = new THREE.FogExp2(0xd8e8f4, 0.00035);
 scene.fog  = haze;
 
-// Wider field of view for a large terrain; position out front
-const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 1, 8000);
+const camera = new THREE.PerspectiveCamera(45, canvasWrap.clientWidth / canvasWrap.clientHeight, 1, 8000);
 camera.position.set(0, ROWS * 0.45, ROWS * 1.2);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -480,7 +443,7 @@ controls.maxDistance = COLS * 2.2;
 controls.minDistance = 10;
 controls.update();
 
-// ── Lighting (daylight scheme) ────────────────────────────────────────────────
+// ── Lighting ──────────────────────────────────────────────────────────────────
 scene.add(new THREE.AmbientLight(0xf0f4ff, 0.65));
 const sun = new THREE.DirectionalLight(0xfff5d8, 1.1);
 sun.position.set(-COLS * 0.5, ROWS * 0.8, COLS * 0.3);
@@ -493,7 +456,6 @@ scene.add(fill);
 let currentExag = 5;
 
 function buildGeometry(zExag) {
-  // Build at MCOLS×MROWS (1/STEP resolution) — ~366K triangles vs 3.3M full-res
   const pos = new Float32Array(MCOLS * MROWS * 3);
   for (let mr = 0; mr < MROWS; mr++) {
     for (let mc = 0; mc < MCOLS; mc++) {
@@ -524,7 +486,7 @@ const mat  = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.Dou
 const mesh = new THREE.Mesh(buildGeometry(currentExag), mat);
 scene.add(mesh);
 
-// ── Stream lines (3D LineSegments, float above mesh — cannot be overwritten) ──
+// ── Stream lines ──────────────────────────────────────────────────────────────
 const streamGeo = new THREE.BufferGeometry();
 const streamMat = new THREE.LineBasicMaterial({ color: 0x1a3f8a });
 const streamLines = new THREE.LineSegments(streamGeo, streamMat);
@@ -533,13 +495,13 @@ scene.add(streamLines);
 
 function buildStreamLines(threshold, zExag) {
   const pts = [];
-  const Y_OFF = 3.0;   // world-units above terrain surface
+  const Y_OFF = 3.0;
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
       const i = row * COLS + col;
       if (accumNorm[i] < threshold) continue;
       const dir = flowDir[i];
-      if (dir === 255) continue;            // outlet or nodata — no downstream
+      if (dir === 255) continue;
       const nr = row + D8R[dir], nc = col + D8C[dir];
       if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
       pts.push(
@@ -577,13 +539,11 @@ let currentView = 'agri';
 function setViewMode(mode) {
   currentView = mode;
   const isStreams = mode === 'streams';
-  // mesh colour: neutral gray for stream-line view, otherwise terrain/agri
   const src = isStreams ? null : (mode === 'terrain' ? meshColTerrain : meshColAgri);
   if (src) {
     mesh.geometry.attributes.color.array.set(src);
     mesh.geometry.attributes.color.needsUpdate = true;
   } else {
-    // flat mid-gray so lines read clearly
     mesh.geometry.attributes.color.array.fill(0.82);
     mesh.geometry.attributes.color.needsUpdate = true;
   }
@@ -592,14 +552,13 @@ function setViewMode(mode) {
   scene.fog = mode === 'terrain' ? haze : null;
   document.getElementById('legend-terrain').style.display = mode === 'terrain' ? '' : 'none';
   document.getElementById('legend-agri').style.display    = mode === 'agri'    ? '' : 'none';
-  // show/hide stream controls
   const show = isStreams ? '' : 'none';
   document.getElementById('stream-section').style.display = show;
   document.getElementById('stream-ctrl').style.display    = show;
   document.getElementById('stream-note').style.display    = show;
 }
 
-// ── Rebuild agriculture colours and refresh mesh ──────────────────────────────
+// ── Rebuild agriculture colours ───────────────────────────────────────────────
 function refreshAgri() {
   const latR  = +document.getElementById('lat-reduce').value;
   const elevR = +document.getElementById('elev-reduce').value;
@@ -651,8 +610,12 @@ const hoverRay = new THREE.Raycaster();
 const hoverMV  = new THREE.Vector2();
 const tooltip  = document.getElementById('tooltip');
 
-window.addEventListener('mousemove', ev => {
-  hoverMV.set((ev.clientX/innerWidth)*2-1, -(ev.clientY/innerHeight)*2+1);
+canvasWrap.addEventListener('mousemove', ev => {
+  const rect = canvas.getBoundingClientRect();
+  hoverMV.set(
+    ((ev.clientX - rect.left) / rect.width)  *  2 - 1,
+   -((ev.clientY - rect.top)  / rect.height) *  2 + 1
+  );
   hoverRay.setFromCamera(hoverMV, camera);
   const hits = hoverRay.intersectObject(mesh);
   if (!hits.length) { tooltip.textContent = 'Hover over terrain'; return; }
@@ -668,7 +631,6 @@ window.addEventListener('mousemove', ev => {
   if (currentView === 'terrain') {
     tooltip.textContent = `${lat.toFixed(3)}°N  ${lon.toFixed(3)}°E  ·  ${e} m`;
   } else {
-    // Compute live agri score for tooltip
     const latR    = +latSlider.value;
     const elevR   = +elevSlider.value;
     const latFac  = Math.max(0, 1 - (latR/100) * (lat - LAT_REF));
@@ -681,33 +643,35 @@ window.addEventListener('mousemove', ev => {
 });
 
 // ── Resize ────────────────────────────────────────────────────────────────────
-window.addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
+function onResize() {
+  const w = canvasWrap.clientWidth;
+  const h = canvasWrap.clientHeight;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+  renderer.setSize(w, h);
+  resizeSimCanvas();
+}
+new ResizeObserver(onResize).observe(canvasWrap);
 
 // ── Show UI ───────────────────────────────────────────────────────────────────
 document.getElementById('loading').style.display  = 'none';
 document.getElementById('ui').style.display      = 'flex';
 document.getElementById('legend').style.display  = 'flex';
-// Start in agri view — show agri legend, hide terrain legend
 document.getElementById('legend-terrain').style.display = 'none';
 document.getElementById('legend-agri').style.display    = '';
 
 // ── Tribe Simulation ──────────────────────────────────────────────────────────
 const NUM_TRIBES   = 200;
 const INIT_POP     = 100;
-const CONSUME_RATE = 0.012;   // food units consumed per person per frame
-let DECLINE_RATE   = 0.20;    // population factor lost per shortage frame
-let REPLENISH_RATE = 1 / 6;   // fraction of base restored per frame
-let GROWTH_RATE    = 0.05;    // max population growth factor per frame
-let NOMAD_FRAC     = 0.30;    // fraction of tribes born nomadic
+const CONSUME_RATE = 0.012;
+let DECLINE_RATE   = 0.20;
+let REPLENISH_RATE = 1 / 6;
+let GROWTH_RATE    = 0.05;
+let NOMAD_FRAC     = 0.30;
 let RADIUS_KM      = 20;
 
-// Harvest-radius offsets — rebuilt when RADIUS_KM changes
 let RDRS = [], RDCS = [];
-let RPX  = 1;   // current radius in pixels
+let RPX  = 1;
 function rebuildRadius() {
   RPX  = Math.max(1, Math.round(RADIUS_KM * 1000 / UNIT_M));
   RDRS = []; RDCS = [];
@@ -717,17 +681,12 @@ function rebuildRadius() {
 }
 rebuildRadius();
 
-// ── Performance structures (allocated once, reused every frame) ────────────────
-// Cell-ownership flat array: -1 = unclaimed, ≥0 = tribe index
-// Avoids allocating a new Map(~15 000 entries) every simStep
 const _cellOwner  = new Int32Array(COLS * ROWS).fill(-1);
-const _dirtyOwner = [];    // cells written this step → reset after harvest
-const _cIdxs      = [];    // scratch harvest list, reused per tribe (no alloc)
+const _dirtyOwner = [];
+const _cIdxs      = [];
 
-// Spatial bucket grid for O(n) absorption (updated each simStep)
-// Bucket side = RPX so 3×3 neighbourhood covers all pairs within RPX distance
 let _sgBkt = 1, _sgW = 1;
-const _sgGrid = new Map();   // bucket key → [tribe indices]
+const _sgGrid = new Map();
 
 function updateSpatialGrid() {
   _sgGrid.clear();
@@ -743,7 +702,6 @@ function updateSpatialGrid() {
   }
 }
 
-// Snapshot agriculture base score at current slider values
 const agriBase = new Float32Array(COLS * ROWS);
 {
   const latR  = +document.getElementById('lat-reduce').value;
@@ -761,7 +719,7 @@ const agriBase = new Float32Array(COLS * ROWS);
   }
 }
 
-const resourceCurrent = agriBase.slice();   // starts full
+const resourceCurrent = agriBase.slice();
 const depletedCells   = new Set();
 
 function mkTribe(row, col) {
@@ -769,7 +727,6 @@ function mkTribe(row, col) {
            nomadic: Math.random() < NOMAD_FRAC };
 }
 
-// Random placement on land cells with non-zero agriBase
 const occupied = new Set();
 const tribes   = [];
 function placeTribeRandom() {
@@ -791,7 +748,6 @@ let simRunning = false;
 let simFrame   = 0;
 let simSpeed   = 1;
 
-// Movement direction table (reused, shuffled in-place per tribe)
 const _M8R = [-1, 1, 0, 0,-1,-1, 1, 1];
 const _M8C = [ 0, 0,-1, 1,-1, 1,-1, 1];
 const _M8I = [0, 1, 2, 3, 4, 5, 6, 7];
@@ -799,7 +755,6 @@ const _M8I = [0, 1, 2, 3, 4, 5, 6, 7];
 function simStep() {
   simFrame++;
 
-  // 1. Build exclusive cell claims using reusable Int32Array (no Map alloc)
   _dirtyOwner.length = 0;
   for (let ti = 0; ti < tribes.length; ti++) {
     const t = tribes[ti];
@@ -823,7 +778,6 @@ function simStep() {
     }
   }
 
-  // 2. Harvest owned cells; capacity = 2× needs so surplus can accumulate
   for (let ti = 0; ti < tribes.length; ti++) {
     const t = tribes[ti];
     if (t.pop < 1) continue;
@@ -865,11 +819,9 @@ function simStep() {
     }
   }
 
-  // Reset ownership array (only dirty cells — O(claimed) not O(map total))
   for (let d = 0; d < _dirtyOwner.length; d++) _cellOwner[_dirtyOwner[d]] = -1;
 
-  // Helper: move tribe one tile; returns true if moved; costs 1% pop
-  function tryMove(t, shuffle) {
+  function tryMove(t, shuffle, step = 1) {
     if (shuffle) {
       for (let i = 7; i > 0; i--) {
         const j = (Math.random() * (i + 1)) | 0;
@@ -878,32 +830,29 @@ function simStep() {
     }
     for (let k = 0; k < 8; k++) {
       const d  = shuffle ? _M8I[k] : (_M8I[(Math.random() * 8) | 0]);
-      const nr = t.row + _M8R[d], nc = t.col + _M8C[d];
+      const nr = t.row + _M8R[d] * step, nc = t.col + _M8C[d] * step;
       if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
       const ni = nr * COLS + nc;
       if (isWater[ni] || occupied.has(ni)) continue;
       occupied.delete(t.row * COLS + t.col);
       t.row = nr; t.col = nc;
       occupied.add(ni);
-      t.pop = Math.max(0, t.pop * 0.99);   // 1% cost per move
+      t.pop = Math.max(0, t.pop * 0.99);
       return true;
     }
     return false;
   }
 
-  // 3a. Nomadic tribes always move every frame
   for (const t of tribes) {
     if (t.pop < 1 || !t.nomadic) continue;
-    tryMove(t, false);
+    tryMove(t, false, 6);
   }
 
-  // 3b. Sedentary tribes move only on shortage
   for (const t of tribes) {
     if (t.pop < 1 || t.nomadic || !t.shortage) continue;
     tryMove(t, true);
   }
 
-  // 4. Absorption via spatial bucket grid — O(n) average instead of O(n²)
   updateSpatialGrid();
   for (let ti = 0; ti < tribes.length; ti++) {
     if (tribes[ti].pop < 1) continue;
@@ -929,7 +878,6 @@ function simStep() {
     }
   }
 
-  // 5. Split — chance = clamp(log20(pop/1000), 0,1) × 0.003 per frame
   const newTribes = [];
   for (const t of tribes) {
     if (t.pop < 1001) continue;
@@ -944,13 +892,14 @@ function simStep() {
     const half = t.pop / 2;
     t.pop = half; t.storage /= 2;
     const child = mkTribe(nr, nc);
+    child.nomadic = t.nomadic;
     child.pop = half; child.storage = t.storage;
+    child.newborn = 10;
     occupied.add(ni);
     newTribes.push(child);
   }
   for (const t of newTribes) tribes.push(t);
 
-  // 6. Replenish depleted cells
   for (const idx of depletedCells) {
     resourceCurrent[idx] = Math.min(agriBase[idx], resourceCurrent[idx] + agriBase[idx] * REPLENISH_RATE);
     if (resourceCurrent[idx] >= agriBase[idx] - 1e-6) {
@@ -959,7 +908,8 @@ function simStep() {
     }
   }
 
-  // 7. Prune dead tribes every 200 frames to keep array compact
+  for (const t of tribes) { if (t.newborn > 0) t.newborn--; }
+
   if (simFrame % 200 === 0) {
     let w = 0;
     for (let i = 0; i < tribes.length; i++) if (tribes[i].pop >= 1) tribes[w++] = tribes[i];
@@ -967,14 +917,16 @@ function simStep() {
   }
 }
 
-// 2D overlay canvas — tribe dots projected from 3D world space
+// 2D overlay canvas — absolute inside canvas-wrap
 const simCanvas = document.createElement('canvas');
-simCanvas.style.cssText = 'position:fixed;inset:0;pointer-events:none;';
-document.body.appendChild(simCanvas);
+simCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
+canvasWrap.appendChild(simCanvas);
 const simCtx = simCanvas.getContext('2d');
-function resizeSimCanvas() { simCanvas.width = innerWidth; simCanvas.height = innerHeight; }
+function resizeSimCanvas() {
+  simCanvas.width  = canvasWrap.clientWidth;
+  simCanvas.height = canvasWrap.clientHeight;
+}
 resizeSimCanvas();
-window.addEventListener('resize', resizeSimCanvas);
 
 const _tv = new THREE.Vector3();
 function drawTribes() {
@@ -987,36 +939,77 @@ function drawTribes() {
       (elevData[i] / UNIT_M) * currentExag + 6,
       (t.row / (ROWS - 1) - 0.5) * ROWS
     ).project(camera);
-    if (_tv.z > 1) continue;   // behind camera
+    if (_tv.z > 1) continue;
     const sx = (_tv.x *  0.5 + 0.5) * simCanvas.width;
     const sy = (_tv.y * -0.5 + 0.5) * simCanvas.height;
-    const r  = Math.max(2, Math.sqrt(t.pop) * 0.14);
-    // vitality: -1 (starving/red) → 0 (stagnant/orange) → 1 (growing/yellow)
+    const r  = Math.max(1, Math.sqrt(t.pop) * 0.07);
     const v  = Math.max(-1, Math.min(1, t.vitality));
     let cr, cg, cb;
     if (v < 0) {
-      // red → orange
-      const s = v + 1;   // 0..1
+      const s = v + 1;
       cr = 210; cg = Math.round(45 + s * 85); cb = Math.round(20 - s * 5);
     } else {
-      // orange → yellow
       cr = Math.round(210 + v * 30); cg = Math.round(130 + v * 80); cb = Math.round(15 - v * 10);
     }
     simCtx.beginPath();
     simCtx.arc(sx, sy, r, 0, Math.PI * 2);
     simCtx.fillStyle = `rgba(${cr},${cg},${cb},0.88)`;
     simCtx.fill();
-    simCtx.strokeStyle = 'rgba(255,255,255,0.7)';
-    simCtx.lineWidth = 0.8;
-    simCtx.stroke();
+    if (t.newborn > 0) {
+      simCtx.strokeStyle = `rgba(255,255,255,${t.newborn / 10})`;
+      simCtx.lineWidth = 1.5;
+      simCtx.stroke();
+    }
   }
 }
 
+const tribeHistory  = [];   // total alive
+const nomadHistory  = [];   // nomadic alive
+const sedentHistory = [];   // sedentary alive
+const chartCv  = document.getElementById('tribe-chart');
+const chartCtx = chartCv.getContext('2d');
+
+function drawLine(hist, color) {
+  const W = chartCv.width, H = chartCv.height;
+  const max = Math.max(...tribeHistory, 1);
+  chartCtx.beginPath();
+  for (let i = 0; i < hist.length; i++) {
+    const x = (i / (hist.length - 1)) * W;
+    const y = H - (hist[i] / max) * (H - 4) - 2;
+    i === 0 ? chartCtx.moveTo(x, y) : chartCtx.lineTo(x, y);
+  }
+  chartCtx.strokeStyle = color;
+  chartCtx.lineWidth = 1.5;
+  chartCtx.stroke();
+}
+
+function drawTribeChart() {
+  const W = chartCv.width, H = chartCv.height;
+  chartCtx.clearRect(0, 0, W, H);
+  if (tribeHistory.length < 2) return;
+  drawLine(tribeHistory,  '#444');          // total — dark gray
+  drawLine(nomadHistory,  '#c0392b');       // nomads — red
+  drawLine(sedentHistory, '#1a5faa');       // sedentary — blue
+  // labels top-left
+  const n = tribeHistory.length - 1;
+  chartCtx.font = '9px sans-serif';
+  chartCtx.fillStyle = '#444';    chartCtx.fillText(`total ${tribeHistory[n]}`,  3, 10);
+  chartCtx.fillStyle = '#c0392b'; chartCtx.fillText(`nomad ${nomadHistory[n]}`,  3, 20);
+  chartCtx.fillStyle = '#1a5faa'; chartCtx.fillText(`sedent ${sedentHistory[n]}`, 3, 30);
+}
+
 function updateSimStats() {
-  const alive  = tribes.filter(t => t.pop >= 1).length;
-  const totPop = Math.round(tribes.reduce((s, t) => s + t.pop, 0));
+  const alive   = tribes.filter(t => t.pop >= 1);
+  const total   = alive.length;
+  const nomads  = alive.filter(t => t.nomadic).length;
+  const sedents = total - nomads;
+  const totPop  = Math.round(tribes.reduce((s, t) => s + t.pop, 0));
   document.getElementById('sim-stats').textContent =
-    `Tribes: ${alive}/${NUM_TRIBES}  ·  Pop: ${totPop}  ·  Frame: ${simFrame}`;
+    `Tribes: ${total}  ·  Pop: ${totPop}  ·  Frame: ${simFrame}`;
+  tribeHistory.push(total);   if (tribeHistory.length  > 400) tribeHistory.shift();
+  nomadHistory.push(nomads);  if (nomadHistory.length  > 400) nomadHistory.shift();
+  sedentHistory.push(sedents);if (sedentHistory.length > 400) sedentHistory.shift();
+  drawTribeChart();
 }
 
 document.getElementById('sim-btn').addEventListener('click', () => {
@@ -1032,6 +1025,7 @@ document.getElementById('sim-reset').addEventListener('click', () => {
   depletedCells.clear();
   occupied.clear();
   tribes.length = 0;
+  tribeHistory.length = 0; nomadHistory.length = 0; sedentHistory.length = 0;
   placeTribeRandom();
   updateSimStats();
   drawTribes();

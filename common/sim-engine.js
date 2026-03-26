@@ -107,6 +107,55 @@ class MinHeap {
   get size() { return this.h.length; }
 }
 
+// ── FastHeap — typed-array binary heap for dijkstraFrom ───────────────────────
+// Uses Float32Array (keys) + Int32Array (values) to avoid GC pressure.
+// Capacity = N * NDIRS = worst-case total pushes in Dijkstra.
+class FastHeap {
+  constructor(cap) {
+    this._k = new Float32Array(cap);
+    this._v = new Int32Array(cap);
+    this._n = 0;
+  }
+  get size() { return this._n; }
+  reset()    { this._n = 0; }
+  push(k, v) {
+    let i = this._n++;
+    this._k[i] = k; this._v[i] = v;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this._k[p] <= this._k[i]) break;
+      let t;
+      t = this._k[p]; this._k[p] = this._k[i]; this._k[i] = t;
+      t = this._v[p]; this._v[p] = this._v[i]; this._v[i] = t;
+      i = p;
+    }
+  }
+  pop() {
+    const v = this._v[0];
+    const l = --this._n;
+    if (l > 0) {
+      this._k[0] = this._k[l]; this._v[0] = this._v[l];
+      let i = 0;
+      for (;;) {
+        let s = i, a = 2*i+1, b = 2*i+2;
+        if (a < l && this._k[a] < this._k[s]) s = a;
+        if (b < l && this._k[b] < this._k[s]) s = b;
+        if (s === i) break;
+        let t;
+        t = this._k[s]; this._k[s] = this._k[i]; this._k[i] = t;
+        t = this._v[s]; this._v[s] = this._v[i]; this._v[i] = t;
+        i = s;
+      }
+    }
+    return v;
+  }
+}
+
+// Pre-allocated reusable buffers for dijkstraFrom (module-level, single-threaded JS is safe)
+const _dijkDist = new Float32Array(N);
+const _dijkDone = new Uint8Array(N);
+const _dijkHeap = new FastHeap(N * NDIRS); // worst-case capacity
+
 // ── Simulation factory ────────────────────────────────────────────────────────
 /**
  * Create one simulation instance tied to a canvas element.
@@ -352,9 +401,38 @@ function createSim(canvasId, initP) {
     return total;
   }
 
+  // ── Dijkstra full cost map from a single source ────────────────────────
+  // Returns Float32Array[N]: minimum travel cost from start to every tile.
+  // Uses module-level pre-allocated buffers; no per-call allocation.
+  function dijkstraFrom(start) {
+    _dijkDist.fill(Infinity);
+    _dijkDone.fill(0);
+    _dijkDist[start] = 0;
+    _dijkHeap.reset();
+    _dijkHeap.push(0, start);
+    while (_dijkHeap.size) {
+      const cur = _dijkHeap.pop();
+      if (_dijkDone[cur]) continue;
+      _dijkDone[cur] = 1;
+      const base = cur * NDIRS;
+      for (let dir = 0; dir < NDIRS; dir++) {
+        const nb = nbrIdx[base + dir];
+        if (nb < 0 || _dijkDone[nb]) continue;
+        const ec = nbrBase[base + dir];
+        if (!isFinite(ec)) continue;
+        const nd = _dijkDist[cur] + ec;
+        if (nd < _dijkDist[nb]) {
+          _dijkDist[nb] = nd;
+          _dijkHeap.push(nd, nb);
+        }
+      }
+    }
+    return new Float32Array(_dijkDist); // copy — buffer is reused next call
+  }
+
   return { P, buildBaseCosts, paint, start, stop, reset,
            findPath: (start, goal, usePathDep) => aStar(start, goal, usePathDep),
-           pathCost };
+           pathCost, dijkstraFrom };
 }
 
 // ── Hillshade helper (shared by paint() and paintTerrain()) ──────────────────

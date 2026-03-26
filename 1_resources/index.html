@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>I · Resource Distribution — Algorithms of the City</title>
+<link rel="stylesheet" href="../common/style.css">
+</head>
+<body>
+
+<nav>
+  <a class="nav-home" href="../index.html">Algorithms of the City</a>
+  <a class="active" href="index.html">I · Resource Distribution</a>
+</nav>
+
+<div class="page-wrap">
+
+  <header class="chapter-header">
+    <h1>I · Resource Distribution</h1>
+    <p><i>"The first human settlements were not chosen for beauty or defence alone —
+       they were chosen for food. The river plain that feeds a thousand is worth more
+       than the hilltop that shelters a hundred."<br>
+       — the author</i></p>
+  </header>
+
+  <!-- ── I.1 Agriculture Density ──────────────────────────────────────────── -->
+  <section id="agriculture">
+    <div class="section-num">I.1</div>
+    <div class="section-text">
+      <h2>Agriculture Density &amp; Tribe Simulation</h2>
+      <p>Slope, latitude, and altitude filter the landscape into zones of fertility.
+         Clans are born, grow, migrate, merge, and split across the terrain of northern China.</p>
+    </div>
+    <div class="entry-grid">
+      <div class="prose">
+        <p>Good farmland is not random. It requires a slope gentle enough to hold soil and
+           water — too flat and drainage fails, too steep and erosion strips the topsoil.
+           The optimal band is roughly 0.1 – 10%. Beyond that, the score falls linearly to
+           zero at 50%.</p>
+        <p>Latitude compounds the effect. Northern latitudes receive less solar energy, shorten
+           the growing season, and depress yields. Each degree above a reference latitude
+           reduces productivity by an adjustable factor. Altitude adds cold and thinner air:
+           every 100 m of elevation above sea level similarly discounts the base score.</p>
+        <p>The result is a continuous fertility surface over the landscape — the North China
+           Plain glows green; the Tibetan Plateau and Mongolian steppe are near-zero; the
+           Loess Plateau occupies an intermediate band shaped by slope and altitude together.</p>
+        <p>Two hundred clans are placed at random on this surface. Each one harvests an
+           exclusive circular territory, grows when in surplus, starves and migrates when
+           resources are exhausted, absorbs weaker neighbours, and eventually fissions when
+           large enough. Nomadic clans drift continuously; sedentary ones stay put until
+           forced out by shortage.</p>
+        <pre><span class="cm">// Base agriculture score per cell</span>
+slopeScore  <span class="op">=</span> 0            <span class="cm">// slope &lt; 0.1% or &gt; 50%</span>
+            <span class="op">=</span> 1.0          <span class="cm">// 0.1% ≤ slope ≤ 10%</span>
+            <span class="op">=</span> 1 - (slope-10)/40  <span class="cm">// 10% – 50% (linear falloff)</span>
+
+latFactor   <span class="op">=</span> max(0, 1 - latReduction × (lat - southEdge))
+elevFactor  <span class="op">=</span> max(0, 1 - elevReduction × elev / 100)
+
+agriBase[cell] <span class="op">=</span> slopeScore × latFactor × elevFactor
+
+<span class="cm">// Per-frame tribe mechanics</span>
+<span class="kw">for each</span> tribe:
+  owned_cells  <span class="op">=</span> cells within radius where this tribe is closest centre
+  harvested    <span class="op">=</span> min(available_in_owned_cells, population × 2 × consume_rate)
+  storage     <span class="op">+=</span> harvested <span class="op">-</span> population × consume_rate
+
+  <span class="kw">if</span> storage <span class="op">&lt;</span> 0:  population <span class="op">×=</span> (1 - starvation_rate); move
+  <span class="kw">else</span>:           population <span class="op">×=</span> (1 + surplus_ratio × growth_rate)
+
+  <span class="kw">if</span> nomadic:     move every frame  <span class="cm">// 1% pop cost per step</span>
+
+  <span class="kw">if</span> dist(A, B) <span class="op">≤</span> radius:  larger absorbs smaller
+  <span class="kw">if</span> pop <span class="op">></span> 1000:  split chance <span class="op">=</span> log₂₀(pop/1000) × 0.003</pre>
+      </div>
+      <div class="sim-panel">
+        <iframe src="agriculture.html"
+                style="width:100%;height:600px;border:none;display:block;"
+                title="Agriculture density & tribe simulation"></iframe>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VII · Spatial Optimisation — Algorithms of the City</title>
+<link rel="stylesheet" href="../common/style.css">
+<style>
+#three-wrap {
+  width: 100%; height: 440px; position: relative;
+  background: #f5f5f5; overflow: hidden;
+}
+#three-wrap canvas { display: block; }
+.score-row {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px 16px;
+}
+.score-cell {
+  font-family: monospace; font-size: 0.7rem;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.score-cell .sc-label { color: var(--muted); }
+.score-cell .sc-val   { color: var(--text); font-weight: 600; }
+#iter-msg { font-size: 0.68rem; color: var(--muted); font-family: monospace; }
+.wt-labels {
+  display: flex; justify-content: space-between;
+  font-size: 0.65rem; color: var(--muted); margin: -5px 0 6px;
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-home" href="../index.html">Algorithms of the City</a>
+  <a class="active" href="index.html">VII · Spatial Optimisation</a>
+</nav>
+
+<div class="page-wrap">
+
+  <header class="chapter-header">
+    <h1>VII · Spatial Optimisation</h1>
+    <p>Given a parcel of land, a programme of uses, and a single entrance from the street —
+       where should each use be placed to minimise the total cost of movement within the
+       building and from every space to the door?</p>
+  </header>
+
+  <!-- ── VII.1 ────────────────────────────────────────────────────────────── -->
+  <section id="placement">
+    <div class="section-num">VII.1</div>
+    <div class="section-text">
+      <h2>Optimal Placement on a Three-Storey Parcel</h2>
+      <p>Hill-climbing search over a 5 × 15 × 3 grid, minimising weighted travel cost.</p>
+    </div>
+
+    <div class="entry-grid">
+      <div class="prose">
+        <p>A parcel is 5 metres wide and 15 metres deep, with three floors — 225 tiles in
+           total. An entrance opens from a street on one edge of the ground floor.
+           A single staircase connects all floors; its position is itself part of the
+           optimisation. We must place <em>N</em> programmatic tiles somewhere on this
+           parcel so that the total cost of movement is minimised.</p>
+        <p>Two costs are balanced. <strong>Accessibility</strong>: how far, in aggregate,
+           is every occupied tile from the entrance? A tile far from the door is hard to
+           reach — it serves fewer people, generates more effort. <strong>Connectivity</strong>:
+           how far is every tile from every other? A compact programme is efficient to
+           navigate; a dispersed one wastes time between activities.</p>
+        <p>Vertical travel is routed exclusively through the staircase tile. To move
+           between floors, a person walks horizontally to the staircase, climbs (each
+           floor costs a configurable number of equivalent metres), then walks from the
+           staircase to their destination. Upper floors require structural support: the
+           tile directly below must be occupied. These constraints — the cost of
+           verticality, the mandatory staircase route, and the stacking requirement —
+           make upper floors a last resort, used only when horizontal clustering on
+           the ground plane no longer improves the score.</p>
+        <p>The optimiser uses <strong>hill climbing</strong>. At each step it either
+           tries a random tile swap or a staircase relocation, accepting only moves that
+           reduce the total score. The two objectives are balanced by a single slider
+           scaled so that, at the midpoint, each term contributes equally regardless of
+           programme size.</p>
+
+        <pre><span class="cm">// Staircase-routed distance (metres)</span>
+<span class="kw">function</span> <span class="fn">dist</span>(a, b, stair):
+  <span class="kw">if</span> a.floor <span class="op">==</span> b.floor:
+    <span class="kw">return</span> |a.r<span class="op">-</span>b.r| <span class="op">+</span> |a.c<span class="op">-</span>b.c|
+  <span class="kw">return</span> |a.r<span class="op">-</span>s.r| <span class="op">+</span> |a.c<span class="op">-</span>s.c|       <span class="cm">// walk to stair</span>
+       <span class="op">+</span> |a.floor<span class="op">-</span>b.floor| <span class="op">×</span> <span class="nm">VERT</span>         <span class="cm">// climb</span>
+       <span class="op">+</span> |b.r<span class="op">-</span>s.r| <span class="op">+</span> |b.c<span class="op">-</span>s.c|       <span class="cm">// walk from stair</span>
+
+<span class="cm">// Score: (N−1) balances entrance sum against pairwise count</span>
+<span class="kw">function</span> <span class="fn">score</span>(tiles, entrance, stair):
+  s1 <span class="op">=</span> Σ <span class="fn">dist</span>(t, entrance)         <span class="cm">// accessibility</span>
+  s2 <span class="op">=</span> Σ <span class="fn">dist</span>(t_i, t_j) <span class="kw">for</span> i<span class="op">&lt;</span>j   <span class="cm">// connectivity</span>
+  <span class="kw">return</span> <span class="nm">w1</span><span class="op">×</span>(N<span class="op">-</span><span class="nm">1</span>)<span class="op">×</span>s1 <span class="op">+</span> <span class="nm">w2</span><span class="op">×</span>s2
+
+<span class="cm">// Hill-climbing: tile swaps (70%) + staircase moves (30%)</span>
+<span class="kw">repeat</span>:
+  <span class="kw">if</span> random() <span class="op">&lt;</span> <span class="nm">0.3</span>: tryStairMove(stair)
+  <span class="kw">else</span>:
+    R <span class="op">=</span> random occupied tile with no tile stacked above
+    A <span class="op">=</span> random empty tile whose floor-below is occupied (or ground)
+    <span class="kw">if</span> <span class="fn">score</span>(swap R→A) <span class="op">&lt;</span> <span class="fn">score</span>(current): apply swap</pre>
+      </div>
+
+      <div class="sim-panel">
+        <div style="padding:12px 14px 10px;border-bottom:1px solid var(--border);background:var(--panel);">
+          <div id="panel-title" style="font-family:'Segoe UI',system-ui,sans-serif;font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:3px;">
+            5 × 15 m parcel · 3 floors · hill-climbing placement
+          </div>
+          <div style="font-size:0.72rem;color:var(--muted);">
+            Amber shaft = staircase (position optimised). Tiles:
+            <span style="color:#1a5faa;font-weight:600;">blue</span> = efficient,
+            <span style="color:#c0392b;font-weight:600;">red</span> = costly.
+            Red cone = entrance. Drag to orbit.
+          </div>
+        </div>
+
+        <div class="sim-canvas-wrap">
+          <div id="three-wrap"></div>
+        </div>
+
+        <div class="sim-controls">
+
+          <div class="sim-row">
+            <span class="sim-label">Entrance ↔ Connectivity</span>
+            <input type="range" id="sl-wt" min="0" max="1" step="0.05" value="0.5">
+            <span class="sim-val" id="sl-wt-v">0.50</span>
+          </div>
+          <div class="wt-labels">
+            <span>← Entrance</span><span>Connectivity →</span>
+          </div>
+
+          <div class="sim-row">
+            <span class="sim-label">Stair cost / floor (m)</span>
+            <input type="range" id="sl-vert" min="1" max="50" step="1" value="15">
+            <span class="sim-val" id="sl-vert-v">15</span>
+          </div>
+
+          <div class="sim-row">
+            <span class="sim-label">Columns</span>
+            <input type="range" id="sl-cols" min="2" max="15" step="1" value="5">
+            <span class="sim-val" id="sl-cols-v">5</span>
+          </div>
+
+          <div class="sim-row">
+            <span class="sim-label">Rows</span>
+            <input type="range" id="sl-rows" min="3" max="15" step="1" value="15">
+            <span class="sim-val" id="sl-rows-v">15</span>
+          </div>
+
+          <div class="sim-row">
+            <span class="sim-label">Tiles to place</span>
+            <input type="range" id="sl-n" min="1" max="225" step="1" value="10">
+            <span class="sim-val" id="sl-n-v">10</span>
+          </div>
+
+          <div class="score-row">
+            <div class="score-cell">
+              <span class="sc-label">Total score</span>
+              <span class="sc-val" id="sc-total">—</span>
+            </div>
+            <div class="score-cell">
+              <span class="sc-label">Entrance term</span>
+              <span class="sc-val" id="sc-s1">—</span>
+            </div>
+            <div class="score-cell">
+              <span class="sc-label">Connectivity</span>
+              <span class="sc-val" id="sc-s2">—</span>
+            </div>
+          </div>
+          <div id="iter-msg">—</div>
+
+          <div class="sim-btns">
+            <button id="btn-start" onclick="window._opt.start()">Run</button>
+            <button id="btn-stop"  onclick="window._opt.stop()"  disabled>Stop</button>
+            <button id="btn-reset" onclick="window._opt.reset()">New random</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- .page-wrap -->
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Fixed scene and cost constants ───────────────────────────────────────────
+const NUMBER_OF_FLOORS          = 3;
+const SCENE_UNITS_PER_FLOOR     = 3.5;   // visual height of one floor in Three.js units
+const TILE_WIDTH_IN_SCENE_UNITS = 0.80;  // horizontal size of one tile box
+const TILE_HEIGHT_IN_SCENE_UNITS = SCENE_UNITS_PER_FLOOR - 0.28;  // nearly fills a floor gap
+const SWAP_CANDIDATES_PER_STEP  = 60;    // how many random swaps to evaluate each optimisation step
+
+// ── Mutable grid dimensions (changed by column / row sliders) ────────────────
+let numberOfColumns  = 5;
+let numberOfRows     = 15;
+let tilesPerFloor    = numberOfColumns * numberOfRows;
+let totalTileCount   = NUMBER_OF_FLOORS * tilesPerFloor;
+
+// ── Mutable cost and layout parameters ───────────────────────────────────────
+let stairCostPerFloor   = 15;   // equivalent metres added per floor climbed via staircase
+let tilesToPlace        = 10;   // how many tiles are currently active
+let connectivityWeight  = 0.5;  // slider value: 0 = pure entrance focus, 1 = pure connectivity focus
+
+// ── Placement state ───────────────────────────────────────────────────────────
+let tileOccupied = new Uint8Array(totalTileCount);  // 1 = occupied, 0 = empty
+let entranceTile = { row: 0, col: 2, edge: 'top' }; // ground-floor tile adjacent to the street
+let staircaseTile = { row: 7, col: 2 };             // position of the single staircase (all floors)
+
+// ── Convert flat tile index ↔ floor/row/col coordinates ──────────────────────
+function tileIndex(floor, row, col) {
+  return floor * tilesPerFloor + row * numberOfColumns + col;
+}
+function tileCoordinates(flatIndex) {
+  const floor      = Math.floor(flatIndex / tilesPerFloor);
+  const remainder  = flatIndex % tilesPerFloor;
+  const row        = Math.floor(remainder / numberOfColumns);
+  const col        = remainder % numberOfColumns;
+  return { floor, row, col };
+}
+
+// ── Distance between two tiles in metres (staircase-routed) ──────────────────
+function distanceBetweenTiles(indexA, indexB) {
+  const tileA = tileCoordinates(indexA);
+  const tileB = tileCoordinates(indexB);
+  if (tileA.floor === tileB.floor) {
+    // Same floor: plain Manhattan distance
+    return Math.abs(tileA.row - tileB.row) + Math.abs(tileA.col - tileB.col);
+  }
+  // Different floors: walk to staircase, climb, walk from staircase
+  const walkToStairFromA   = Math.abs(tileA.row - staircaseTile.row) + Math.abs(tileA.col - staircaseTile.col);
+  const floorsClimbed      = Math.abs(tileA.floor - tileB.floor) * stairCostPerFloor;
+  const walkFromStairToB   = Math.abs(tileB.row - staircaseTile.row) + Math.abs(tileB.col - staircaseTile.col);
+  return walkToStairFromA + floorsClimbed + walkFromStairToB;
+}
+
+// ── Distance from a tile to the entrance (in metres) ─────────────────────────
+function distanceToEntrance(flatIndex) {
+  const { floor, row, col } = tileCoordinates(flatIndex);
+  if (floor === 0) {
+    // Ground floor: straight Manhattan walk to the entrance tile
+    return Math.abs(row - entranceTile.row) + Math.abs(col - entranceTile.col);
+  }
+  // Upper floor: walk to staircase, descend to ground floor, walk to entrance
+  const walkToStaircase      = Math.abs(row - staircaseTile.row) + Math.abs(col - staircaseTile.col);
+  const descentCost          = floor * stairCostPerFloor;
+  const walkStaircaseToEntry = Math.abs(staircaseTile.row - entranceTile.row) + Math.abs(staircaseTile.col - entranceTile.col);
+  return walkToStaircase + descentCost + walkStaircaseToEntry;
+}
+
+// ── Compute total score for the current placement ─────────────────────────────
+function computeFullScore() {
+  const activeTileIndices  = getActiveTileIndices();
+  const numberOfActiveTiles = activeTileIndices.length;
+  let sumOfEntranceDistances    = 0;
+  let sumOfPairwiseDistances    = 0;
+  for (let i = 0; i < numberOfActiveTiles; i++) {
+    sumOfEntranceDistances += distanceToEntrance(activeTileIndices[i]);
+    for (let j = i + 1; j < numberOfActiveTiles; j++) {
+      sumOfPairwiseDistances += distanceBetweenTiles(activeTileIndices[i], activeTileIndices[j]);
+    }
+  }
+  const entranceWeight     = 1 - connectivityWeight;
+  const balancingMultiplier = 2 * Math.max(1, numberOfActiveTiles - 1); // scales entrance sum to match pairwise count
+  const totalScore = entranceWeight * balancingMultiplier * sumOfEntranceDistances
+                   + connectivityWeight * sumOfPairwiseDistances;
+  return { total: totalScore, entranceSum: sumOfEntranceDistances, connectivitySum: sumOfPairwiseDistances };
+}
+
+// ── Compute score change from swapping one tile out and another in (O(N)) ────
+function computeSwapScoreDelta(tileToRemove, tileToAdd) {
+  const entranceDistanceDelta = distanceToEntrance(tileToAdd) - distanceToEntrance(tileToRemove);
+  let connectivityDelta = 0;
+  for (let index = 0; index < totalTileCount; index++) {
+    if (!tileOccupied[index] || index === tileToRemove) continue;
+    connectivityDelta += distanceBetweenTiles(tileToAdd, index)
+                       - distanceBetweenTiles(tileToRemove, index);
+  }
+  const entranceWeight      = 1 - connectivityWeight;
+  const balancingMultiplier = 2 * Math.max(1, tilesToPlace - 1);
+  return entranceWeight * balancingMultiplier * entranceDistanceDelta
+       + connectivityWeight * connectivityDelta;
+}
+
+// ── Stacking constraint helpers ───────────────────────────────────────────────
+function tileCanBeRemoved(flatIndex) {
+  const { floor, row, col } = tileCoordinates(flatIndex);
+  // A tile can only be removed if no tile on the floor above depends on it
+  return floor === NUMBER_OF_FLOORS - 1 || !tileOccupied[tileIndex(floor + 1, row, col)];
+}
+function tileCanBeOccupied(flatIndex, indexToIgnore) {
+  const { floor, row, col } = tileCoordinates(flatIndex);
+  if (floor === 0) return true; // ground floor always available
+  const indexOfTileBelow = tileIndex(floor - 1, row, col);
+  return indexOfTileBelow !== indexToIgnore && tileOccupied[indexOfTileBelow] === 1;
+}
+
+function getActiveTileIndices() {
+  const result = [];
+  for (let index = 0; index < totalTileCount; index++) {
+    if (tileOccupied[index]) result.push(index);
+  }
+  return result;
+}
+function anyTileOnUpperFloors() {
+  for (let index = tilesPerFloor; index < totalTileCount; index++) {
+    if (tileOccupied[index]) return true;
+  }
+  return false;
+}
+
+// ── Optimisation step: tile swap or staircase relocation ─────────────────────
+let stepCount = 0, improvementCount = 0;
+
+function runOneOptimisationStep() {
+  // 30% of the time try relocating the staircase instead of swapping tiles
+  if (Math.random() < 0.30) {
+    tryRelocatingStaircase();
+    return;
+  }
+
+  const removableTiles = [];
+  const addableTiles   = [];
+  for (let index = 0; index < totalTileCount; index++) {
+    if (tileOccupied[index]) {
+      if (tileCanBeRemoved(index)) removableTiles.push(index);
+    } else if (tileCanBeOccupied(index, -1)) {
+      addableTiles.push(index);
+    }
+  }
+  if (!removableTiles.length || !addableTiles.length) return;
+
+  let bestScoreDelta    = 0;
+  let bestRemovalIndex  = -1;
+  let bestAdditionIndex = -1;
+  for (let attempt = 0; attempt < SWAP_CANDIDATES_PER_STEP; attempt++) {
+    const candidateRemoval   = removableTiles[Math.floor(Math.random() * removableTiles.length)];
+    const candidateAddition  = addableTiles  [Math.floor(Math.random() * addableTiles.length)];
+    if (candidateAddition === candidateRemoval) continue;
+    if (!tileCanBeOccupied(candidateAddition, candidateRemoval)) continue;
+    const scoreDelta = computeSwapScoreDelta(candidateRemoval, candidateAddition);
+    if (scoreDelta < bestScoreDelta) {
+      bestScoreDelta    = scoreDelta;
+      bestRemovalIndex  = candidateRemoval;
+      bestAdditionIndex = candidateAddition;
+    }
+  }
+  stepCount++;
+  if (bestRemovalIndex >= 0) {
+    tileOccupied[bestRemovalIndex]  = 0;
+    tileOccupied[bestAdditionIndex] = 1;
+    improvementCount++;
+  }
+}
+
+function tryRelocatingStaircase() {
+  const scoreBefore   = computeFullScore().total;
+  const previousStair = { ...staircaseTile };
+  staircaseTile = {
+    row: Math.max(0, Math.min(numberOfRows    - 1, staircaseTile.row + Math.floor(Math.random() * 3) - 1)),
+    col: Math.max(0, Math.min(numberOfColumns - 1, staircaseTile.col + Math.floor(Math.random() * 3) - 1))
+  };
+  stepCount++;
+  if (computeFullScore().total < scoreBefore) {
+    improvementCount++;
+  } else {
+    staircaseTile = previousStair; // revert if no improvement
+  }
+}
+
+// ── THREE.js scene setup ──────────────────────────────────────────────────────
+const canvasContainer = document.getElementById('three-wrap');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(canvasContainer.offsetWidth, canvasContainer.offsetHeight);
+renderer.shadowMap.enabled = true;
+canvasContainer.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf5f5f5);
+
+const camera = new THREE.PerspectiveCamera(42, canvasContainer.offsetWidth / canvasContainer.offsetHeight, 0.1, 500);
+camera.position.set(202, NUMBER_OF_FLOORS * SCENE_UNITS_PER_FLOOR * 0.5, -200);
+camera.lookAt(2.5, SCENE_UNITS_PER_FLOOR, 7.5);
+
+const orbitControls = new OrbitControls(camera, renderer.domElement);
+orbitControls.target.set(2.5, SCENE_UNITS_PER_FLOOR, 7.5);
+orbitControls.enableDamping = true;
+orbitControls.dampingFactor = 0.08;
+orbitControls.update();
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.75);
+directionalLight.position.set(8, 18, -6);
+directionalLight.castShadow = true;
+scene.add(directionalLight);
+
+// Shared tile box geometry (same shape for every tile regardless of grid size)
+const tileBoxGeometry = new THREE.BoxGeometry(
+  TILE_WIDTH_IN_SCENE_UNITS,
+  TILE_HEIGHT_IN_SCENE_UNITS,
+  TILE_WIDTH_IN_SCENE_UNITS
+);
+
+// Groups and arrays for objects that are rebuilt when the grid dimensions change
+const staticSceneGroup = new THREE.Group(); // building wireframe and floor grid lines
+scene.add(staticSceneGroup);
+let tileMaterials = [];
+let tileMeshes    = [];
+
+function rebuildSceneForCurrentGridSize() {
+  // Remove all existing tile meshes and dispose their individual materials
+  for (const tileMesh of tileMeshes) {
+    scene.remove(tileMesh);
+    tileMesh.material.dispose();
+  }
+  tileMaterials = [];
+  tileMeshes    = [];
+
+  // Remove old wireframe and grid line geometry
+  staticSceneGroup.traverse(object => { if (object.isLine) object.geometry.dispose(); });
+  staticSceneGroup.clear();
+
+  // Recompute grid-size-dependent values
+  tilesPerFloor  = numberOfColumns * numberOfRows;
+  totalTileCount = NUMBER_OF_FLOORS * tilesPerFloor;
+  tileOccupied   = new Uint8Array(totalTileCount);
+
+  // Keep the tile-count slider within the new maximum
+  const tileCountSlider = document.getElementById('sl-n');
+  tileCountSlider.max = totalTileCount;
+  if (Number(tileCountSlider.value) > totalTileCount) {
+    tileCountSlider.value = totalTileCount;
+    document.getElementById('sl-n-v').textContent = totalTileCount;
+  }
+
+  // Update the panel title to reflect the new parcel dimensions
+  document.getElementById('panel-title').textContent =
+    `${numberOfColumns} × ${numberOfRows} m parcel · 3 floors · hill-climbing placement`;
+
+  // Building outline wireframe
+  const buildingBoxGeometry = new THREE.BoxGeometry(numberOfColumns, NUMBER_OF_FLOORS * SCENE_UNITS_PER_FLOOR, numberOfRows);
+  const buildingEdgeGeometry = new THREE.EdgesGeometry(buildingBoxGeometry);
+  buildingBoxGeometry.dispose();
+  const buildingWireframe = new THREE.LineSegments(buildingEdgeGeometry, new THREE.LineBasicMaterial({ color: 0xbbbbbb }));
+  buildingWireframe.position.set(numberOfColumns * 0.5, NUMBER_OF_FLOORS * SCENE_UNITS_PER_FLOOR * 0.5, numberOfRows * 0.5);
+  staticSceneGroup.add(buildingWireframe);
+
+  // Horizontal grid lines drawn at each floor level
+  const gridLineMaterial = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.6 });
+  for (let floor = 0; floor < NUMBER_OF_FLOORS; floor++) {
+    const lineVertices = [];
+    const floorElevation = floor * SCENE_UNITS_PER_FLOOR;
+    for (let row = 0; row <= numberOfRows; row++) {
+      lineVertices.push(0, floorElevation, row, numberOfColumns, floorElevation, row);
+    }
+    for (let col = 0; col <= numberOfColumns; col++) {
+      lineVertices.push(col, floorElevation, 0, col, floorElevation, numberOfRows);
+    }
+    const gridGeometry = new THREE.BufferGeometry();
+    gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(lineVertices, 3));
+    staticSceneGroup.add(new THREE.LineSegments(gridGeometry, gridLineMaterial));
+  }
+
+  // One tile mesh per grid position, pre-created and toggled visible/invisible
+  for (let flatIndex = 0; flatIndex < totalTileCount; flatIndex++) {
+    const tileMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc, transparent: true, opacity: 0.40 });
+    tileMaterials.push(tileMaterial);
+    const tileMesh = new THREE.Mesh(tileBoxGeometry, tileMaterial);
+    const { floor, row, col } = tileCoordinates(flatIndex);
+    tileMesh.position.set(
+      col + 0.5,
+      floor * SCENE_UNITS_PER_FLOOR + 0.025 + TILE_HEIGHT_IN_SCENE_UNITS * 0.5,
+      row + 0.5
+    );
+    tileMesh.castShadow    = true;
+    tileMesh.receiveShadow = true;
+    tileMesh.visible       = false;
+    scene.add(tileMesh);
+    tileMeshes.push(tileMesh);
+  }
+
+  // Point camera and orbit target at the centre of the new parcel
+  const parcelCentreX = numberOfColumns * 0.5;
+  const parcelCentreZ = numberOfRows    * 0.5;
+  orbitControls.target.set(parcelCentreX, SCENE_UNITS_PER_FLOOR, parcelCentreZ);
+  camera.position.set(
+    parcelCentreX + numberOfColumns * 1.4,
+    NUMBER_OF_FLOORS * SCENE_UNITS_PER_FLOOR * 1.6,
+    parcelCentreZ - numberOfRows * 0.65
+  );
+  camera.lookAt(parcelCentreX, SCENE_UNITS_PER_FLOOR, parcelCentreZ);
+  orbitControls.update();
+}
+
+// ── Staircase mesh: single amber vertical shaft covering all floors ────────────
+const staircaseTotalHeight = NUMBER_OF_FLOORS * SCENE_UNITS_PER_FLOOR;
+const staircaseGeometry    = new THREE.BoxGeometry(
+  TILE_WIDTH_IN_SCENE_UNITS * 0.65,
+  staircaseTotalHeight,
+  TILE_WIDTH_IN_SCENE_UNITS * 0.65
+);
+const staircaseMaterial = new THREE.MeshLambertMaterial({ color: 0xe07b00, transparent: true, opacity: 0.85 });
+const staircaseMesh     = new THREE.Mesh(staircaseGeometry, staircaseMaterial);
+staircaseMesh.castShadow = true;
+scene.add(staircaseMesh);
+
+// ── Entrance markers: rebuilt on each reset ────────────────────────────────────
+const entranceMarkersGroup = new THREE.Group();
+scene.add(entranceMarkersGroup);
+
+function rebuildEntranceMarkers() {
+  entranceMarkersGroup.traverse(object => {
+    if (object.isMesh) { object.geometry.dispose(); object.material.dispose(); }
+  });
+  entranceMarkersGroup.clear();
+
+  const entranceEdge   = entranceTile.edge;
+  const entranceRow    = entranceTile.row;
+  const entranceCol    = entranceTile.col;
+
+  // Blue road strip sitting just outside the face where the entrance is
+  let roadWidth, roadDepth, roadCentreX, roadCentreZ;
+  if (entranceEdge === 'top' || entranceEdge === 'bottom') {
+    roadWidth   = numberOfColumns;
+    roadDepth   = 1.4;
+    roadCentreX = numberOfColumns * 0.5;
+    roadCentreZ = entranceEdge === 'top' ? -0.7 : numberOfRows + 0.7;
+  } else {
+    roadWidth   = 1.4;
+    roadDepth   = numberOfRows;
+    roadCentreX = entranceEdge === 'left' ? -0.7 : numberOfColumns + 0.7;
+    roadCentreZ = numberOfRows * 0.5;
+  }
+  const roadMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(roadWidth, 0.06, roadDepth),
+    new THREE.MeshLambertMaterial({ color: 0x1a5faa, transparent: true, opacity: 0.45 })
+  );
+  roadMesh.position.set(roadCentreX, -0.03, roadCentreZ);
+  entranceMarkersGroup.add(roadMesh);
+
+  // Red cone arrow pointing from the road into the building
+  const arrowCone = new THREE.Mesh(
+    new THREE.ConeGeometry(0.28, 0.75, 8),
+    new THREE.MeshLambertMaterial({ color: 0xc0392b })
+  );
+  let coneCentreX = entranceCol + 0.5;
+  let coneCentreY = 0.5;
+  let coneCentreZ = entranceRow + 0.5;
+  // Default cone points up (+Y); rotate so tip faces into the building
+  if (entranceEdge === 'top')    { coneCentreZ = -0.7;               arrowCone.rotation.x =  Math.PI / 2; }
+  if (entranceEdge === 'bottom') { coneCentreZ = numberOfRows + 0.7; arrowCone.rotation.x = -Math.PI / 2; }
+  if (entranceEdge === 'left')   { coneCentreX = -0.7;               arrowCone.rotation.z = -Math.PI / 2; }
+  if (entranceEdge === 'right')  { coneCentreX = numberOfColumns + 0.7; arrowCone.rotation.z =  Math.PI / 2; }
+  arrowCone.position.set(coneCentreX, coneCentreY, coneCentreZ);
+  arrowCone.castShadow = true;
+  entranceMarkersGroup.add(arrowCone);
+}
+
+// ── Map cost fraction [0,1] to a blue-to-red hex colour ──────────────────────
+function colorFromCostFraction(fraction) {
+  const red   = Math.round(26  + fraction * 166);
+  const green = Math.round(95  - fraction *  55);
+  const blue  = Math.round(170 - fraction * 127);
+  return (red << 16) | (green << 8) | blue;
+}
+
+// ── Update tile colours and staircase visibility ──────────────────────────────
+function updateTileAppearance() {
+  const activeTileIndices    = getActiveTileIndices();
+  const perTileCostContrib   = new Float32Array(totalTileCount);
+  let highestCostContribution = 0;
+
+  for (const tileIdx of activeTileIndices) {
+    let costContribution = (1 - connectivityWeight) * distanceToEntrance(tileIdx);
+    for (const otherIdx of activeTileIndices) {
+      if (otherIdx !== tileIdx) costContribution += connectivityWeight * distanceBetweenTiles(tileIdx, otherIdx);
+    }
+    perTileCostContrib[tileIdx] = costContribution;
+    if (costContribution > highestCostContribution) highestCostContribution = costContribution;
+  }
+
+  for (let index = 0; index < totalTileCount; index++) {
+    if (tileOccupied[index]) {
+      tileMeshes[index].visible = true;
+      const normalizedCost = highestCostContribution > 0 ? perTileCostContrib[index] / highestCostContribution : 0;
+      tileMaterials[index].color.setHex(colorFromCostFraction(normalizedCost));
+    } else {
+      tileMeshes[index].visible = false;
+    }
+  }
+
+  staircaseMesh.position.set(
+    staircaseTile.col + 0.5,
+    staircaseTotalHeight * 0.5,
+    staircaseTile.row + 0.5
+  );
+  staircaseMesh.visible = anyTileOnUpperFloors();
+}
+
+// ── Random starting layout ─────────────────────────────────────────────────────
+function generateRandomEntrance() {
+  const edgeIndex = Math.floor(Math.random() * 4);
+  switch (edgeIndex) {
+    case 0: return { row: 0,                col: Math.floor(Math.random() * numberOfColumns), edge: 'top'    };
+    case 1: return { row: numberOfRows - 1, col: Math.floor(Math.random() * numberOfColumns), edge: 'bottom' };
+    case 2: return { row: Math.floor(Math.random() * numberOfRows), col: 0,                   edge: 'left'   };
+    default:return { row: Math.floor(Math.random() * numberOfRows), col: numberOfColumns - 1, edge: 'right'  };
+  }
+}
+
+function resetToRandomLayout(keepEntranceAndStaircase = false) {
+  stopOptimisation();
+  tileOccupied.fill(0);
+
+  if (!keepEntranceAndStaircase) {
+    entranceTile  = generateRandomEntrance();
+    staircaseTile = {
+      row: Math.floor(Math.random() * numberOfRows),
+      col: Math.floor(Math.random() * numberOfColumns)
+    };
+  }
+
+  tilesToPlace = Number(document.getElementById('sl-n').value);
+
+  // Place tiles floor by floor, respecting the stacking constraint
+  let tilesStillToPlace = Math.min(tilesToPlace, totalTileCount);
+  for (let floor = 0; floor < NUMBER_OF_FLOORS && tilesStillToPlace > 0; floor++) {
+    const eligibleTiles = [];
+    for (let row = 0; row < numberOfRows; row++) {
+      for (let col = 0; col < numberOfColumns; col++) {
+        const floorBelow = floor - 1;
+        if (floor === 0 || tileOccupied[tileIndex(floorBelow, row, col)]) {
+          eligibleTiles.push(tileIndex(floor, row, col));
+        }
+      }
+    }
+    // Shuffle eligible tiles so placement is random
+    for (let swapPos = eligibleTiles.length - 1; swapPos > 0; swapPos--) {
+      const randomPos = Math.floor(Math.random() * (swapPos + 1));
+      [eligibleTiles[swapPos], eligibleTiles[randomPos]] = [eligibleTiles[randomPos], eligibleTiles[swapPos]];
+    }
+    const tilesToPlaceThisFloor = Math.min(tilesStillToPlace, eligibleTiles.length);
+    for (let k = 0; k < tilesToPlaceThisFloor; k++) tileOccupied[eligibleTiles[k]] = 1;
+    tilesStillToPlace -= tilesToPlaceThisFloor;
+  }
+
+  stepCount = 0;
+  improvementCount = 0;
+  rebuildEntranceMarkers();
+  updateTileAppearance();
+  updateScoreDisplay();
+}
+
+// ── Score display update ───────────────────────────────────────────────────────
+function updateScoreDisplay() {
+  const { total, entranceSum, connectivitySum } = computeFullScore();
+  document.getElementById('sc-total').textContent = total.toFixed(1);
+  document.getElementById('sc-s1').textContent    = entranceSum.toFixed(1);
+  document.getElementById('sc-s2').textContent    = connectivitySum.toFixed(1);
+  document.getElementById('iter-msg').textContent =
+    `${stepCount.toLocaleString()} steps · ${improvementCount.toLocaleString()} improvements`;
+}
+
+// ── Optimisation run / stop ────────────────────────────────────────────────────
+let optimisationRunning = false;
+
+function startOptimisation() {
+  if (optimisationRunning) return;
+  optimisationRunning = true;
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-stop').disabled  = false;
+}
+function stopOptimisation() {
+  optimisationRunning = false;
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-stop').disabled  = true;
+}
+
+// ── Continuous render loop ─────────────────────────────────────────────────────
+const OPTIMISATION_STEPS_PER_FRAME = 8;
+
+function renderLoop() {
+  requestAnimationFrame(renderLoop);
+  if (optimisationRunning) {
+    for (let step = 0; step < OPTIMISATION_STEPS_PER_FRAME; step++) runOneOptimisationStep();
+    updateTileAppearance();
+    updateScoreDisplay();
+  }
+  orbitControls.update();
+  renderer.render(scene, camera);
+}
+
+// ── Slider event wiring ────────────────────────────────────────────────────────
+document.getElementById('sl-wt').addEventListener('input', function () {
+  connectivityWeight = Number(this.value);
+  document.getElementById('sl-wt-v').textContent = connectivityWeight.toFixed(2);
+  updateTileAppearance();
+  updateScoreDisplay();
+});
+document.getElementById('sl-vert').addEventListener('input', function () {
+  stairCostPerFloor = Number(this.value);
+  document.getElementById('sl-vert-v').textContent = stairCostPerFloor;
+  updateTileAppearance();
+  updateScoreDisplay();
+});
+document.getElementById('sl-n').addEventListener('input', function () {
+  document.getElementById('sl-n-v').textContent = this.value;
+  resetToRandomLayout(true);   // keep entrance and staircase, re-place tiles only
+  startOptimisation();
+});
+document.getElementById('sl-cols').addEventListener('input', function () {
+  numberOfColumns = Number(this.value);
+  document.getElementById('sl-cols-v').textContent = numberOfColumns;
+  rebuildSceneForCurrentGridSize();
+  resetToRandomLayout();
+});
+document.getElementById('sl-rows').addEventListener('input', function () {
+  numberOfRows = Number(this.value);
+  document.getElementById('sl-rows-v').textContent = numberOfRows;
+  rebuildSceneForCurrentGridSize();
+  resetToRandomLayout();
+});
+
+// ── Resize handler ─────────────────────────────────────────────────────────────
+new ResizeObserver(() => {
+  const viewportWidth  = canvasContainer.offsetWidth;
+  const viewportHeight = canvasContainer.offsetHeight;
+  if (!viewportWidth || !viewportHeight) return;
+  camera.aspect = viewportWidth / viewportHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(viewportWidth, viewportHeight);
+}).observe(canvasContainer);
+
+// ── Expose run/stop/reset to HTML onclick attributes ──────────────────────────
+window._opt = { start: startOptimisation, stop: stopOptimisation, reset: resetToRandomLayout };
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+rebuildSceneForCurrentGridSize();
+resetToRandomLayout();
+renderLoop();
+</script>
+</body>
+</html>
