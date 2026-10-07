@@ -4,55 +4,6 @@
 <meta charset="UTF-8">
 <title>I.1 · Agriculture Density — Algorithms of the City</title>
 <link rel="stylesheet" href="../common/viewer.css">
-<style>
-/* ── Side-by-side layout: canvas left, sidebar right ── */
-body { display:flex; flex-direction:row; height:100vh; overflow:hidden; }
-
-#canvas-wrap {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-}
-
-#sidebar {
-  width: 272px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  background: rgba(255,253,250,0.97);
-  border-left: 1px solid #d0cbc2;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Override viewer.css fixed positioning — panel is now in sidebar flow */
-.viewer-panel {
-  position: relative !important;
-  top: auto !important; left: auto !important;
-  border-radius: 0 !important;
-  border: none !important;
-  border-bottom: 1px solid #e0dbd4 !important;
-  box-shadow: none !important;
-  max-height: none !important;
-  backdrop-filter: none !important;
-  background: transparent !important;
-}
-.viewer-legend {
-  position: relative !important;
-  top: auto !important; right: auto !important;
-  border-radius: 0 !important;
-  border: none !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  background: transparent !important;
-  padding: 14px 18px;
-}
-/* Loading overlay fills the canvas-wrap */
-.viewer-loading { position: absolute !important; }
-/* Tooltip anchored inside canvas-wrap */
-.viewer-tooltip { position: absolute !important; }
-/* Back link hidden inside iframe */
-.viewer-back { display: none !important; }
-</style>
 </head>
 <body>
 

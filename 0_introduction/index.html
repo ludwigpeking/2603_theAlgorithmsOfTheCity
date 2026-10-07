@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Introduction — Algorithms of the City</title>
+<link rel="stylesheet" href="../common/style.css">
+</head>
+<body>
+
+<nav>
+  <a class="nav-home" href="../index.html">Algorithms of the City</a>
+  <a class="active" href="index.html">Introduction</a>
+</nav>
+
+<div class="page-wrap text-chapter">
+
+  <header class="chapter-header">
+    <h1>Introduction</h1>
+    <p>This project describes the processes that shape cities as algorithms, and runs
+       them as simulations, one layer at a time.</p>
+  </header>
+
+  <!-- ── 0.1 Premise ─────────────────────────────────────────────────── -->
+  <section id="premise">
+    <div class="section-num">0.1</div>
+    <div class="section-text">
+      <h2>Premise</h2>
+    </div>
+    <div class="prose">
+      <p>Cities are usually discussed as products of planning and design. Most of their
+         form, however, comes from many separate decisions made over a long time: where to
+         settle, which route to take, where to trade, what to claim, what to defend. Each
+         decision follows a fairly simple rule, and each changes the conditions for the
+         next.</p>
+      <p>Cities with no shared designer often arrive at similar forms, because they face
+         similar pressures. That regularity suggests the rules can be stated explicitly.
+         This project tries to state them precisely enough to be executed.</p>
+    </div>
+  </section>
+
+  <!-- ── 0.2 Relation to the book ────────────────────────────────────── -->
+  <section id="lineage">
+    <div class="section-num">0.2</div>
+    <div class="section-text">
+      <h2>Relation to the Earlier Book</h2>
+    </div>
+    <div class="prose">
+      <p>The ideas come from
+         <a href="https://the-book-an-evolutionary-history-of-the-city.vercel.app/?chapter=0&amp;lang=en"><em>An Evolutionary History of the City</em></a>,
+         a series of lectures that treats the city as an evolutionary, self-organising
+         system, and as the hardware of three kinds of organisation: security, economy, and
+         ideology.</p>
+      <p>The book argues through history and examples. This project restates the same
+         arguments as algorithms and tests them in simulation. The table shows roughly
+         which book chapters each chapter here draws on.</p>
+    </div>
+
+    <table class="lineage-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Chapter here</th>
+          <th>Related book chapters</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>I</td>
+          <td><a href="../1_resources/index.html">Resource Distribution</a></td>
+          <td>04–05 The symbiosis of hunters and farmers · 08 Over the plain and streams · 09 Flood plains, honey traps</td>
+          <td class="status ready">ready</td>
+        </tr>
+        <tr>
+          <td>II</td>
+          <td>Storytelling</td>
+          <td>02 A holy site for community making · 03 The pattern of a sanctuary · 07 City as the hardware of organisation</td>
+          <td class="status">forthcoming</td>
+        </tr>
+        <tr>
+          <td>III</td>
+          <td><a href="../3_pathfindings/index.html">Pathfindings</a></td>
+          <td>10 Routes being an evolutionary system · 11 Morphism of the narrow pass · 13–14 Technological transmission and resistance · 15–16 Patterns at transportation mode change</td>
+          <td class="status ready">ready</td>
+        </tr>
+        <tr>
+          <td>IV</td>
+          <td><a href="../4_spatialSyntax/index.html">Spatial Syntax</a></td>
+          <td>31 Mechanics: thermal map · 27 Coordinality and contextuality</td>
+          <td class="status ready">ready</td>
+        </tr>
+        <tr>
+          <td>V</td>
+          <td>Trade</td>
+          <td>12 The evolution of trade routes · 17–19 The evolution of commercial communities · 24 Suburban shopping centre</td>
+          <td class="status">forthcoming</td>
+        </tr>
+        <tr>
+          <td>VI</td>
+          <td>Claiming</td>
+          <td>28 Informal occupation · 29 Top-level design</td>
+          <td class="status">forthcoming</td>
+        </tr>
+        <tr>
+          <td>VII</td>
+          <td><a href="../7_spatialOptimisation/index.html">Spatial Optimisation</a></td>
+          <td>17 Commercial communities, for efficiency · 26 Vertical development</td>
+          <td class="status ready">ready</td>
+        </tr>
+        <tr>
+          <td>VIII</td>
+          <td>Defenses</td>
+          <td>06 The calculation on castle building · 20 How walls reflect the social structure</td>
+          <td class="status">forthcoming</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ── 0.3 Definition ──────────────────────────────────────────────── -->
+  <section id="definition">
+    <div class="section-num">0.3</div>
+    <div class="section-text">
+      <h2>What "Algorithm" Means Here</h2>
+    </div>
+    <div class="prose">
+      <p>Each algorithm has three parts: an <strong>objective</strong> (what an agent is
+         trying to achieve), <strong>constraints</strong> (the limits it acts under), and a
+         <strong>decision rule</strong> (how it chooses). Many algorithms run at the same
+         time, and each one alters the state the others work on. A path that is used
+         becomes cheaper to use again, so early outcomes affect later ones.</p>
+    </div>
+
+<pre><span class="kw">repeat</span> each time step:
+    <span class="kw">for each</span> <span class="nm">algorithm</span>:                              <span class="cm">// in no fixed order</span>
+        <span class="kw">for each</span> <span class="nm">agent</span>:
+            <span class="nm">options</span>   <span class="op">=</span> <span class="fn">feasibleActions</span>(<span class="nm">agent</span>, <span class="nm">cityState</span>, <span class="nm">constraints</span>)
+            <span class="nm">decision</span>  <span class="op">=</span> <span class="fn">best</span>(<span class="nm">options</span>, <span class="nm">objective</span>)
+            <span class="nm">cityState</span> <span class="op">=</span> <span class="fn">apply</span>(<span class="nm">decision</span>, <span class="nm">cityState</span>)</pre>
+  </section>
+
+  <!-- ── 0.4 How to read ─────────────────────────────────────────────── -->
+  <section id="reading">
+    <div class="section-num">0.4</div>
+    <div class="section-text">
+      <h2>How the Chapters Are Organised</h2>
+    </div>
+    <div class="prose">
+      <p>The chapters follow a rough historical order, from resources and settlement to
+         paths, trade, claims, and defence. In practice the layers overlap, so each chapter
+         is self-contained and can be read on its own.</p>
+      <p>Each entry has a short explanation, a pseudocode block for the key algorithm, and
+         a simulation with adjustable parameters. The chapters share one simulation core
+         and, where terrain matters, the same map of Rome and Lazio; they differ in the
+         parameters and in the layer they add.</p>
+      <p>The project is open. Corrections and new chapters are welcome through the
+         <a href="https://github.com/ludwigpeking/2603_theAlgorithmsOfTheCity">repository</a>.</p>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>

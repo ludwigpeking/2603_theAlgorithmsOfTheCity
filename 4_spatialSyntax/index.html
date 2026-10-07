@@ -4,35 +4,6 @@
 <meta charset="UTF-8">
 <title>IV · Spatial Syntax — Algorithms of the City</title>
 <link rel="stylesheet" href="../common/style.css">
-<style>
-/* ── Isochrone tier swatches ── */
-.tier-row {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-}
-.tier-swatch {
-  display: inline-block; width: 14px; height: 14px; border-radius: 2px;
-  vertical-align: middle; border: 1px solid rgba(0,0,0,0.15); flex-shrink: 0;
-}
-.tier-label {
-  font-size: 0.7rem; color: var(--muted);
-  font-family: 'Segoe UI', system-ui, sans-serif;
-}
-.tier-label strong { color: var(--text); }
-.iso-stats {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 16px;
-  margin-top: 4px;
-}
-.iso-stat-cell {
-  font-family: monospace; font-size: 0.68rem;
-  display: flex; flex-direction: column; gap: 1px;
-}
-.iso-stat-cell .s-label { color: var(--muted); }
-.iso-stat-cell .s-count { color: var(--text); font-weight: 600; }
-.iso-stat-cell .s-km    { color: var(--light); }
-#hint-msg {
-  font-size: 0.7rem; color: var(--muted); font-style: italic;
-}
-</style>
 </head>
 <body>
 
