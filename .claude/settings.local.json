@@ -3,7 +3,15 @@
     "allow": [
       "Bash(/c/Users/qli/AppData/Local/Programs/Python/Python312/python.exe render_topo.py)",
       "Bash(/c/Users/qli/AppData/Local/Programs/Python/Python312/python.exe -c \":*)",
-      "Bash(/c/Users/qli/AppData/Local/Programs/Python/Python312/python.exe render_lazio.py)"
+      "Bash(/c/Users/qli/AppData/Local/Programs/Python/Python312/python.exe render_lazio.py)",
+      "PowerShell(Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.GetInstalledVoices\\(\\) | ForEach-Object { $_.VoiceInfo | Select-Object Name, Gender, Age, Culture } | Format-Table -AutoSize)",
+      "PowerShell(powershell.exe -ExecutionPolicy Bypass -File \".\\\\tools\\\\synthesize_lecture.ps1\")",
+      "PowerShell(pip *)",
+      "PowerShell(pip install *)",
+      "PowerShell(python \".\\\\tools\\\\synthesize_lecture_edge.py\")",
+      "PowerShell(python \".\\\\tools\\\\render_slides.py\")",
+      "PowerShell($content = Get-Content -Path \"C:\\\\Users\\\\qli\\\\Desktop\\\\IT\\\\2603_AlgorithmsCity\\\\Lecture_10min_Voiceover_CN.txt\" -Raw -Encoding UTF8; $totalChars = $content.Length; $noWhitespace = \\($content -replace '\\\\s', ''\\).Length; $chineseOnly = \\($content -replace '[^一-鿿]', ''\\).Length; $punctOnly = \\($content -replace '[^　-〿＀-￯]', ''\\).Length; Write-Output \"Total characters \\(incl. whitespace\\): $totalChars\"; Write-Output \"Non-whitespace characters: $noWhitespace\"; Write-Output \"Chinese characters only: $chineseOnly\"; Write-Output \"Chinese punctuation only: $punctOnly\"; $lines = \\($content -split \"`n\"\\).Count; Write-Output \"Lines: $lines\")",
+      "PowerShell($content = Get-Content -Path \"C:\\\\Users\\\\qli\\\\Desktop\\\\IT\\\\2603_AlgorithmsCity\\\\Lecture_10min_Voiceover_CN.txt\" -Raw -Encoding UTF8; $chineseOnly = \\($content -replace '[^一-鿿]', ''\\).Length; $punct = \\($content -replace '[^　-〿＀-￯]', ''\\).Length; Write-Output \"Chinese characters: $chineseOnly\"; Write-Output \"Punctuation: $punct\"; Write-Output \"Total non-whitespace: $\\(\\($content -replace '\\\\s', ''\\).Length\\)\")"
     ]
   }
 }

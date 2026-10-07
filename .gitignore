@@ -1,2 +1,5 @@
 # Large data files
 1_resources/greatWall.tif
+
+# Large media files
+*.mp3
